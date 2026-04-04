@@ -1,0 +1,65 @@
+@import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,700;12..96,800&family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:       #06080f;
+  --s1:       #0a0d17;
+  --s2:       #0f1420;
+  --card:     #111827;
+  --border:   #1c2840;
+  --border2:  #243252;
+  --amber:    #f59e0b;
+  --amber-g:  rgba(245,158,11,0.12);
+  --green:    #10b981;
+  --green-g:  rgba(16,185,129,0.12);
+  --red:      #ef4444;
+  --red-g:    rgba(239,68,68,0.12);
+  --blue:     #6366f1;
+  --blue-g:   rgba(99,102,241,0.12);
+  --cyan:     #06b6d4;
+  --text:     #e2e8f0;
+  --text2:    #94a3b8;
+  --text3:    #475569;
+  --head:     'Bricolage Grotesque', sans-serif;
+  --mono:     'JetBrains Mono', monospace;
+  --sans:     'Plus Jakarta Sans', sans-serif;
+  --r:        14px;
+  --r-sm:     8px;
+}
+
+html, body {
+  background: var(--bg);
+  color:      var(--text);
+  font-family: var(--sans);
+  min-height: 100vh;
+  font-size:  14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+::-webkit-scrollbar       { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: var(--bg); }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+input[type="range"] {
+  -webkit-appearance: none; appearance: none;
+  width: 100%; height: 4px; background: var(--border); border-radius: 2px; outline: none; cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%;
+  background: var(--amber); border: 2px solid var(--bg); box-shadow: 0 0 6px rgba(245,158,11,0.5); cursor: pointer;
+}
+
+@keyframes spin    { to { transform: rotate(360deg); } }
+@keyframes fadeUp  { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
+@keyframes popIn   { from { opacity:0; transform:scale(0.88); } to { opacity:1; transform:scale(1); } }
+@keyframes pulse   { 0%,100%{opacity:1} 50%{opacity:0.5} }
+@keyframes blink   { 0%,100%{opacity:1} 50%{opacity:0.2} }
+@keyframes glow    { 0%,100%{text-shadow:0 0 20px rgba(245,158,11,.3)} 50%{text-shadow:0 0 40px rgba(245,158,11,.7)} }
+@keyframes trigPulse { 0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,.25)} 50%{box-shadow:0 0 0 8px rgba(239,68,68,0)} }
+
+.anim-in  { animation: fadeUp 0.35s ease forwards; }
+.spinning { display: inline-block; animation: spin 0.8s linear infinite; }
+.pulsing  { animation: pulse 2s infinite; }
+.glowing  { animation: glow 2.5s ease infinite; }

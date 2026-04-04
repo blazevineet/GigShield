@@ -1,0 +1,7 @@
+/* Spinner.module.css */
+.spinner    { border-radius: 50%; border: 2px solid rgba(255,255,255,0.1); border-top-color: var(--amber); animation: spin 0.7s linear infinite; }
+.sm         { width: 16px; height: 16px; }
+.md         { width: 28px; height: 28px; }
+.lg         { width: 44px; height: 44px; border-width: 3px; }
+.fullScreen { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 20px; background: var(--bg); }
+.brand      { width: 52px; height: 52px; background: var(--amber); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 26px; }

@@ -1,0 +1,20 @@
+.root       { min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); padding: 24px; }
+.card       { width: 100%; max-width: 420px; background: var(--card); border: 1px solid var(--border); border-radius: 20px; padding: 40px 36px; }
+.brand      { text-align: center; margin-bottom: 32px; }
+.logo       { width: 56px; height: 56px; background: var(--amber); border-radius: 14px; display: flex; align-items: center; justify-content: center; font-size: 28px; margin: 0 auto 14px; }
+.title      { font-family: var(--head); font-size: 24px; font-weight: 800; color: var(--text); margin-bottom: 4px; }
+.sub        { font-size: 13px; color: var(--text2); }
+.fg         { margin-bottom: 16px; }
+.fl         { display: block; font-size: 11px; font-weight: 700; color: var(--text3); letter-spacing: 0.8px; text-transform: uppercase; margin-bottom: 7px; }
+.fi         { width: 100%; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 8px; padding: 12px 16px; color: var(--text); font-family: var(--sans); font-size: 15px; outline: none; transition: 0.2s; }
+.fi:focus   { border-color: var(--amber); background: rgba(245,158,11,0.04); }
+.otpInput   { font-size: 24px; letter-spacing: 8px; text-align: center; font-family: var(--mono); }
+.hint       { font-size: 12px; color: var(--text3); margin-top: 6px; }
+.btnPrimary { width: 100%; background: var(--amber); color: #1c0e00; border: none; border-radius: 10px; padding: 14px; font-size: 15px; font-weight: 700; cursor: pointer; font-family: var(--sans); transition: 0.18s; margin-top: 8px; }
+.btnPrimary:hover:not(:disabled) { background: #fbbf24; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(245,158,11,0.3); }
+.btnPrimary:disabled { opacity: 0.5; cursor: not-allowed; }
+.btnText    { width: 100%; background: none; border: none; color: var(--text2); font-size: 13px; cursor: pointer; padding: 10px; margin-top: 4px; font-family: var(--sans); }
+.btnText:hover { color: var(--amber); }
+.phoneBadge { display: flex; align-items: center; justify-content: space-between; background: var(--s2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; font-size: 13px; }
+.changeBtn  { background: none; border: none; color: var(--amber); font-size: 12px; cursor: pointer; font-family: var(--sans); font-weight: 600; }
+.legal      { font-size: 11px; color: var(--text3); text-align: center; margin-top: 24px; line-height: 1.6; }

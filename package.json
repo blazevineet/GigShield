@@ -1,0 +1,19 @@
+{
+  "name": "gigshield",
+  "version": "1.0.0",
+  "private": true,
+  "description": "AI-Powered Parametric Income Insurance for Gig Workers",
+  "workspaces": ["backend", "frontend"],
+  "scripts": {
+    "dev":          "concurrently \"npm run dev -w backend\" \"npm run dev -w frontend\" \"npm run dev -w ml\"",
+    "dev:backend":  "npm run dev -w backend",
+    "dev:frontend": "npm run dev -w frontend",
+    "dev:ml":       "npm run dev -w ml",
+    "build":        "npm run build -w frontend && npm run build -w backend",
+    "lint":         "npm run lint -w backend && npm run lint -w frontend",
+    "test":         "npm run test -w backend && npm run test -w frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

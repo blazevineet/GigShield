@@ -1,0 +1,240 @@
+// prisma/schema.prisma
+// GigShield — Database Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────
+
+enum PolicyStatus {
+  ACTIVE
+  EXPIRING
+  EXPIRED
+  CANCELLED
+}
+
+enum ClaimStatus {
+  PENDING
+  AUTO_APPROVED
+  SOFT_HOLD
+  HARD_HOLD
+  PAID
+  REJECTED
+}
+
+enum TriggerType {
+  HEAVY_RAINFALL
+  EXTREME_HEAT
+  FLOOD_ALERT
+  SEVERE_AQI
+  ORDER_COLLAPSE
+  CURFEW_BANDH
+}
+
+enum PayoutStatus {
+  QUEUED
+  PROCESSING
+  SUCCESS
+  FAILED
+}
+
+enum UserRole {
+  WORKER
+  ADMIN
+  INSURER
+}
+
+// ─── Models ───────────────────────────────────────────
+
+model User {
+  id          String   @id @default(uuid())
+  phone       String   @unique
+  aadhaarHash String?                        // last 4 digits, hashed
+  name        String
+  upiId       String?
+  role        UserRole @default(WORKER)
+  isVerified  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workerProfile WorkerProfile?
+  otpRequests   OtpRequest[]
+  refreshTokens RefreshToken[]
+
+  @@index([phone])
+  @@map("users")
+}
+
+model WorkerProfile {
+  id             String  @id @default(uuid())
+  userId         String  @unique
+  platform       String                       // Blinkit, Zepto, etc.
+  zone           String                       // Velachery, Tambaram, etc.
+  city           String  @default("Chennai")
+  avgDailyHours  Float   @default(8)
+  tenureMonths   Int     @default(0)
+  isActive       Boolean @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  policies Policy[]
+  gpsPings GpsPing[]
+
+  @@index([zone])
+  @@index([platform])
+  @@map("worker_profiles")
+}
+
+model Policy {
+  id             String       @id @default(uuid())
+  workerId       String
+  tier           String                        // basic | standard | pro
+  basePremium    Float
+  finalPremium   Float                         // AI-adjusted
+  maxPayout      Float
+  coverageHours  Int          @default(8)      // dynamic hours
+  mlScore        Float?                        // risk score from model
+  mlMultiplier   Float?
+  status         PolicyStatus @default(ACTIVE)
+  issuedAt       DateTime     @default(now())
+  expiresAt      DateTime
+  renewedFromId  String?                       // for renewals
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  worker  WorkerProfile @relation(fields: [workerId], references: [id])
+  claims  Claim[]
+
+  @@index([workerId])
+  @@index([status])
+  @@index([expiresAt])
+  @@map("policies")
+}
+
+model Claim {
+  id            String      @id @default(uuid())
+  policyId      String
+  triggerType   TriggerType
+  triggerValue  Float                           // actual measured value
+  threshold     Float                           // threshold that was breached
+  bcsScore      Float?                          // Behavioral Coherence Score
+  bcsBreakdown  Json?                           // detailed signal breakdown
+  payoutAmount  Float
+  status        ClaimStatus @default(PENDING)
+  autoTriggered Boolean     @default(true)
+  notes         String?
+  adjusterNotes String?
+  firedAt       DateTime    @default(now())
+  resolvedAt    DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  policy  Policy   @relation(fields: [policyId], references: [id])
+  payout  Payout?
+
+  @@index([policyId])
+  @@index([status])
+  @@index([triggerType])
+  @@index([firedAt])
+  @@map("claims")
+}
+
+model Payout {
+  id              String       @id @default(uuid())
+  claimId         String       @unique
+  amount          Float
+  upiId           String
+  razorpayOrderId String?
+  razorpayPayoutId String?
+  status          PayoutStatus @default(QUEUED)
+  failureReason   String?
+  initiatedAt     DateTime     @default(now())
+  completedAt     DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  claim Claim @relation(fields: [claimId], references: [id])
+
+  @@index([status])
+  @@map("payouts")
+}
+
+model GpsPing {
+  id        String   @id @default(uuid())
+  workerId  String
+  lat       Float
+  lon       Float
+  accuracy  Float?
+  speed     Float?
+  altitude  Float?
+  recordedAt DateTime @default(now())
+
+  worker WorkerProfile @relation(fields: [workerId], references: [id], onDelete: Cascade)
+
+  @@index([workerId, recordedAt])
+  @@map("gps_pings")
+}
+
+model TriggerEvent {
+  id           String      @id @default(uuid())
+  triggerType  TriggerType
+  zone         String
+  value        Float
+  threshold    Float
+  source       String                           // Open-Meteo, IMD, etc.
+  rawPayload   Json?
+  claimsRaised Int         @default(0)
+  recordedAt   DateTime    @default(now())
+
+  @@index([triggerType, recordedAt])
+  @@index([zone])
+  @@map("trigger_events")
+}
+
+model OtpRequest {
+  id        String   @id @default(uuid())
+  userId    String
+  otp       String                              // hashed
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("otp_requests")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique                   // hashed
+  expiresAt DateTime
+  revoked   Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model ZoneRiskProfile {
+  id             String   @id @default(uuid())
+  zone           String   @unique
+  city           String
+  floodRiskIndex Float
+  claimFrequency Float
+  lat            Float
+  lon            Float
+  updatedAt      DateTime @updatedAt
+
+  @@map("zone_risk_profiles")
+}

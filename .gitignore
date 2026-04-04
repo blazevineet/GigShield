@@ -1,0 +1,50 @@
+# Dependencies - Covers both backend and frontend
+node_modules/
+.pnp
+.pnp.js
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Environment files - Recursively ignores .env in all subfolders
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+!.env.example
+
+# Python / ML Engine
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+ml/models/*.pkl
+ml/models/*.joblib
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Database (PostgreSQL/SQLite)
+*.db
+*.sqlite
+# If using a local pgAdmin/Docker volume for DB
+pgdata/
+
+# OS & Editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Prisma
+# Note: Keep migrations in Git, but ignore the generated client if it ends up in a weird spot
+# .prisma/
