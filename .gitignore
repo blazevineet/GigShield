@@ -44,7 +44,8 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+README.md
 
 # Prisma
 # Note: Keep migrations in Git, but ignore the generated client if it ends up in a weird spot
-# .prisma/
+# .prisma/ 
