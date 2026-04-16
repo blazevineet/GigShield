@@ -1,13 +1,14 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
-// ADDED 'export' HERE
+// Phase 3: Added upiId to the User interface
 export interface User {
-  id:         string;
-  name:       string;
-  phone:      string;
-  role:       'WORKER' | 'ADMIN' | 'INSURER';
-  hasProfile: boolean;
+  id:          string;
+  name:        string;
+  phone:       string;
+  role:        'WORKER' | 'ADMIN' | 'INSURER';
+  hasProfile:  boolean;
+  upiId?:      string; // <--- ADDED THIS LINE
 }
 
 export interface AuthState {

@@ -1,5 +1,4 @@
-// prisma/schema.prisma
-// GigShield — Database Schema
+// GigShield — Database Schema (Phase 3 Intelligence Optimized)
 
 generator client {
   provider = "prisma-client-js"
@@ -26,9 +25,12 @@ enum ClaimStatus {
   HARD_HOLD
   PAID
   REJECTED
+  SETTLED         // Completed Phase 3 lifecycle
+  MANUAL_REVIEW   // ML-flagged anomalies
 }
 
 enum TriggerType {
+  RAIN
   HEAVY_RAINFALL
   EXTREME_HEAT
   FLOOD_ALERT
@@ -53,15 +55,15 @@ enum UserRole {
 // ─── Models ───────────────────────────────────────────
 
 model User {
-  id          String   @id @default(uuid())
-  phone       String   @unique
-  aadhaarHash String?                        // last 4 digits, hashed
-  name        String
-  upiId       String?
-  role        UserRole @default(WORKER)
-  isVerified  Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id            String         @id @default(uuid())
+  phone         String         @unique
+  aadhaarHash   String?        // last 4 digits, hashed
+  name          String
+  upiId         String?
+  role          UserRole       @default(WORKER)
+  isVerified    Boolean        @default(false)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   workerProfile WorkerProfile?
   otpRequests   OtpRequest[]
@@ -72,20 +74,20 @@ model User {
 }
 
 model WorkerProfile {
-  id             String  @id @default(uuid())
-  userId         String  @unique
-  platform       String                       // Blinkit, Zepto, etc.
-  zone           String                       // Velachery, Tambaram, etc.
-  city           String  @default("Chennai")
-  avgDailyHours  Float   @default(8)
-  tenureMonths   Int     @default(0)
-  isActive       Boolean @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id             String         @id @default(uuid())
+  userId         String         @unique
+  platform       String         // Blinkit, Zepto, etc.
+  zone           String         // Velachery, Tambaram, etc.
+  city           String         @default("Chennai")
+  avgDailyHours  Float          @default(8)
+  tenureMonths   Int            @default(0)
+  isActive       Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  policies Policy[]
-  gpsPings GpsPing[]
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  policies       Policy[]
+  gpsPings       GpsPing[]
 
   @@index([zone])
   @@index([platform])
@@ -93,90 +95,91 @@ model WorkerProfile {
 }
 
 model Policy {
-  id             String       @id @default(uuid())
+  id             String         @id @default(uuid())
   workerId       String
-  tier           String                        // basic | standard | pro
+  tier           String         // basic | standard | pro
   basePremium    Float
-  finalPremium   Float                         // AI-adjusted
+  finalPremium   Float          // AI-adjusted
   maxPayout      Float
-  coverageHours  Int          @default(8)      // dynamic hours
-  mlScore        Float?                        // risk score from model
+  coverageHours  Int            @default(8)
+  mlScore        Float?         // risk score from model
   mlMultiplier   Float?
-  status         PolicyStatus @default(ACTIVE)
-  issuedAt       DateTime     @default(now())
+  mlExplanation  String?        // Stores the string explanation from Python
+  featureBreakdown Json?        // Stores the detailed weights (Flood index, etc.)
+  status         PolicyStatus   @default(ACTIVE)
+  issuedAt       DateTime       @default(now())
   expiresAt      DateTime
-  renewedFromId  String?                       // for renewals
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  renewedFromId  String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
-  worker  WorkerProfile @relation(fields: [workerId], references: [id])
-  claims  Claim[]
+  worker         WorkerProfile  @relation(fields: [workerId], references: [id])
+  claims         Claim[]
 
   @@index([workerId])
   @@index([status])
-  @@index([expiresAt])
   @@map("policies")
 }
 
 model Claim {
-  id            String      @id @default(uuid())
-  policyId      String
-  triggerType   TriggerType
-  triggerValue  Float                           // actual measured value
-  threshold     Float                           // threshold that was breached
-  bcsScore      Float?                          // Behavioral Coherence Score
-  bcsBreakdown  Json?                           // detailed signal breakdown
-  payoutAmount  Float
-  status        ClaimStatus @default(PENDING)
-  autoTriggered Boolean     @default(true)
-  notes         String?
-  adjusterNotes String?
-  firedAt       DateTime    @default(now())
-  resolvedAt    DateTime?
-  createdAt     DateTime    @default(now())
-  updatedAt     DateTime    @updatedAt
+  id             String        @id @default(uuid())
+  policyId       String
+  triggerType    TriggerType
+  triggerValue   Float          // actual measured value
+  threshold      Float          // threshold that was breached
+  severity       Float?         // Severity score from ML (0.0 to 2.0)
+  aiConfidence   Float?         // Confidence score (0.0 to 1.0)
+  isAnomaly      Boolean        @default(false) 
+  alerts         String[]       
+  payoutAmount   Float
+  status         ClaimStatus    @default(PENDING)
+  autoTriggered  Boolean        @default(true)
+  notes          String?        // General purpose notes
+  adjusterNotes  String?        // FIXED: Added missing field from Controller error
+  firedAt        DateTime       @default(now())
+  resolvedAt     DateTime?
+  settledAt      DateTime?      
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
 
-  policy  Policy   @relation(fields: [policyId], references: [id])
-  payout  Payout?
+  policy         Policy         @relation(fields: [policyId], references: [id])
+  payout         Payout?
 
   @@index([policyId])
   @@index([status])
-  @@index([triggerType])
-  @@index([firedAt])
   @@map("claims")
 }
 
 model Payout {
-  id              String       @id @default(uuid())
-  claimId         String       @unique
-  amount          Float
-  upiId           String
-  razorpayOrderId String?
+  id               String       @id @default(uuid())
+  claimId          String       @unique
+  amount           Float
+  upiId            String
   razorpayPayoutId String?
-  status          PayoutStatus @default(QUEUED)
-  failureReason   String?
-  initiatedAt     DateTime     @default(now())
-  completedAt     DateTime?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  status           PayoutStatus @default(QUEUED)
+  failureReason    String?
+  metadata         Json?        // For storing audit logs or AI trust scores
+  initiatedAt      DateTime     @default(now())
+  completedAt      DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
-  claim Claim @relation(fields: [claimId], references: [id])
+  claim            Claim        @relation(fields: [claimId], references: [id])
 
   @@index([status])
   @@map("payouts")
 }
 
 model GpsPing {
-  id        String   @id @default(uuid())
-  workerId  String
-  lat       Float
-  lon       Float
-  accuracy  Float?
-  speed     Float?
-  altitude  Float?
-  recordedAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  workerId    String
+  lat         Float
+  lon         Float
+  accuracy    Float?   // FIXED: Added missing field from Worker route error
+  speed       Float?
+  recordedAt  DateTime @default(now())
 
-  worker WorkerProfile @relation(fields: [workerId], references: [id], onDelete: Cascade)
+  worker      WorkerProfile @relation(fields: [workerId], references: [id], onDelete: Cascade)
 
   @@index([workerId, recordedAt])
   @@map("gps_pings")
@@ -188,9 +191,9 @@ model TriggerEvent {
   zone         String
   value        Float
   threshold    Float
-  source       String                           // Open-Meteo, IMD, etc.
-  rawPayload   Json?
+  source       String      // Open-Meteo, IMD, etc.
   claimsRaised Int         @default(0)
+  rawPayload   Json?       // FIXED: Added missing field from TriggerWorker error
   recordedAt   DateTime    @default(now())
 
   @@index([triggerType, recordedAt])
@@ -201,12 +204,12 @@ model TriggerEvent {
 model OtpRequest {
   id        String   @id @default(uuid())
   userId    String
-  otp       String                              // hashed
+  otp       String   
   expiresAt DateTime
   used      Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("otp_requests")
@@ -215,12 +218,12 @@ model OtpRequest {
 model RefreshToken {
   id        String   @id @default(uuid())
   userId    String
-  token     String   @unique                   // hashed
+  token     String   @unique
   expiresAt DateTime
   revoked   Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("refresh_tokens")

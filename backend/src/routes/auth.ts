@@ -1,6 +1,7 @@
 import { Router } from 'express';
-import { body }   from 'express-validator';
+import { body } from 'express-validator';
 import { validate } from '../middleware/validate';
+import { authenticate } from '../middleware/authenticate';
 import {
   sendOtp,
   verifyOtp,
@@ -8,29 +9,22 @@ import {
   logout,
   getMe,
 } from '../controllers/authController';
-import { authenticate } from '../middleware/authenticate';
 
 export const authRouter = Router();
 
-/**
- * POST /api/v1/auth/otp/send
- * Send OTP to worker's mobile number
- */
+// POST /api/v1/auth/otp/send
 authRouter.post(
   '/otp/send',
   [
     body('phone')
       .matches(/^\+91[6-9]\d{9}$/)
-      .withMessage('Valid Indian mobile number required'),
+      .withMessage('Please enter a valid Indian mobile number starting with +91'),
   ],
   validate,
-  sendOtp,
+  sendOtp
 );
 
-/**
- * POST /api/v1/auth/otp/verify
- * Verify OTP → returns access + refresh tokens
- */
+// POST /api/v1/auth/otp/verify
 authRouter.post(
   '/otp/verify',
   [
@@ -38,23 +32,13 @@ authRouter.post(
     body('otp').isLength({ min: 6, max: 6 }).isNumeric().withMessage('6-digit OTP required'),
   ],
   validate,
-  verifyOtp,
+  verifyOtp
 );
 
-/**
- * POST /api/v1/auth/token/refresh
- * Exchange refresh token for new access token
+/** * FIXED: Changed from '/token/refresh' to '/refresh' 
+ * This matches your frontend client.ts call seen in the console logs.
  */
-authRouter.post('/token/refresh', refreshToken);
+authRouter.post('/refresh', refreshToken);
 
-/**
- * POST /api/v1/auth/logout
- * Revoke refresh token
- */
 authRouter.post('/logout', authenticate, logout);
-
-/**
- * GET /api/v1/auth/me
- * Get current authenticated user
- */
 authRouter.get('/me', authenticate, getMe);

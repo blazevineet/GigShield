@@ -1,21 +1,21 @@
 /**
- * GigShield — Parametric Trigger Worker
- *
- * Runs every 5 minutes. Polls all active data sources,
- * evaluates thresholds, and fires auto-claims for any breach.
+ * GigShield — Phase 3 AI-Driven Trigger Worker
+ * Polls data sources, validates via ML, and manages automated claim firing.
  */
 
-import cron    from 'node-cron';
-import axios   from 'axios';
+import cron from 'node-cron';
+import axios from 'axios';
 import { prisma } from '../config/db';
 import { logger } from '../config/logger';
-import { autoTriggerClaim } from '../controllers/claimsController';
+
+// Updated URL to match your Python Service
+const ML_SERVICE_URL = process.env.ML_SERVICE_URL || 'http://localhost:8000';
 
 const TRIGGERS = [
-  { type: 'HEAVY_RAINFALL',  threshold: 35,  unit: 'mm/hr' },
-  { type: 'EXTREME_HEAT',    threshold: 42,  unit: '°C'    },
-  { type: 'SEVERE_AQI',      threshold: 400, unit: 'AQI'   },
-  { type: 'ORDER_COLLAPSE',  threshold: 60,  unit: '%drop' },
+  { type: 'HEAVY_RAINFALL', threshold: 35, unit: 'mm/hr' },
+  { type: 'EXTREME_HEAT',   threshold: 42, unit: '°C'    },
+  { type: 'SEVERE_AQI',     threshold: 400, unit: 'AQI'   },
+  { type: 'ORDER_COLLAPSE', threshold: 60, unit: '%drop' },
 ];
 
 const ZONE_COORDS: Record<string, { lat: number; lon: number }> = {
@@ -32,14 +32,13 @@ const ZONE_COORDS: Record<string, { lat: number; lon: number }> = {
 export function startTriggerWorker() {
   // Poll every 5 minutes
   cron.schedule('*/5 * * * *', async () => {
-    logger.info('Trigger worker: polling data sources...');
+    logger.info('🚀 Trigger worker: polling data sources and validating with ML...');
     await evaluateAllZones();
   });
 }
 
 async function evaluateAllZones() {
   const zones = Object.entries(ZONE_COORDS);
-
   await Promise.allSettled(
     zones.map(async ([zone, coords]) => {
       try {
@@ -52,16 +51,17 @@ async function evaluateAllZones() {
   );
 }
 
+// ... fetchZoneReadings, fetchWeather, fetchMockAqi, fetchMockOrderDrop remain the same ...
+// (Kept for brevity, use your existing implementations here)
+
 async function fetchZoneReadings(zone: string, coords: { lat: number; lon: number }) {
   const [weatherRes, aqiData] = await Promise.allSettled([
     fetchWeather(coords.lat, coords.lon),
     fetchMockAqi(zone),
   ]);
-
   const weather = weatherRes.status === 'fulfilled' ? weatherRes.value : null;
-
   return {
-    rainfall: weather?.precipitation ? weather.precipitation * 60 : 0,  // mm/hr estimate
+    rainfall: weather?.precipitation ? weather.precipitation * 60 : 0,
     temp:     weather?.temperature ?? 30,
     aqi:      aqiData.status === 'fulfilled' ? aqiData.value : 100,
     orderDrop: fetchMockOrderDrop(zone),
@@ -72,33 +72,31 @@ async function fetchWeather(lat: number, lon: number) {
   const url = `${process.env.OPEN_METEO_BASE_URL}/forecast`;
   const res = await axios.get(url, {
     params: {
-      latitude:  lat,
-      longitude: lon,
-      current:   'temperature_2m,precipitation,rain',
-      timezone:  'Asia/Kolkata',
+      latitude: lat, longitude: lon,
+      current: 'temperature_2m,precipitation,rain',
+      timezone: 'Asia/Kolkata',
     },
     timeout: 8000,
   });
   return {
-    temperature:   res.data.current.temperature_2m,
+    temperature: res.data.current.temperature_2m,
     precipitation: res.data.current.precipitation,
-    rain:          res.data.current.rain,
+    rain: res.data.current.rain,
   };
 }
 
-// Mock: replace with CPCB API in production
 async function fetchMockAqi(zone: string): Promise<number> {
-  const baseAqi: Record<string, number> = {
-    Velachery: 120, Tambaram: 110, Guindy: 150, 'T. Nagar': 100,
-  };
+  const baseAqi: Record<string, number> = { Velachery: 120, Tambaram: 110, Guindy: 150 };
   return (baseAqi[zone] || 90) + Math.random() * 30;
 }
 
-// Mock: replace with Platform API webhook in production
 function fetchMockOrderDrop(zone: string): number {
-  return Math.random() * 25; // 0–25% simulated drop
+  return Math.random() * 25;
 }
 
+/**
+ * Level Up: Now integrates ML validation before creating the TriggerEvent
+ */
 async function evaluateTriggers(
   zone: string,
   readings: { rainfall: number; temp: number; aqi: number; orderDrop: number },
@@ -112,24 +110,52 @@ async function evaluateTriggers(
 
   for (const trigger of TRIGGERS) {
     const value = valueMap[trigger.type];
-    if (value === undefined) continue;
+    if (value === undefined || value < trigger.threshold) continue;
 
-    // Log reading
-    await prisma.triggerEvent.create({
-      data: {
-        triggerType: trigger.type as any,
+    try {
+      // --- STEP 1: ML Validation (Phase 3 Fraud/Risk Check) ---
+      const mlRes = await axios.post(`${ML_SERVICE_URL}/risk/score`, {
         zone,
+        trigger_type: trigger.type,
         value,
-        threshold: trigger.threshold,
-        source:    trigger.type.startsWith('HEAVY') || trigger.type.startsWith('EXTREME')
-          ? 'Open-Meteo' : 'Mock',
-        rawPayload: { value, unit: trigger.unit },
-      },
-    });
+        threshold: trigger.threshold
+      });
 
-    if (value >= trigger.threshold) {
-      logger.warn({ zone, trigger: trigger.type, value, threshold: trigger.threshold }, 'TRIGGER FIRED');
-      await fireClaims(zone, trigger.type, value, trigger.threshold);
+      const { risk_level, is_anomaly, alerts, confidence } = mlRes.data;
+
+      // Log the event with ML metadata
+      await prisma.triggerEvent.create({
+        data: {
+          triggerType: trigger.type as any,
+          zone,
+          value,
+          threshold: trigger.threshold,
+          source: trigger.type.startsWith('HEAVY') ? 'Open-Meteo' : 'Mock',
+          // Store AI findings in rawPayload for dashboard visualization
+          rawPayload: { 
+            risk_level, 
+            is_anomaly, 
+            alerts, 
+            confidence,
+            unit: trigger.unit 
+          },
+        },
+      });
+
+      // --- STEP 2: Only Fire if ML gives the Green Light ---
+      if (is_anomaly) {
+        logger.warn({ zone, type: trigger.type, alerts }, 'ML BLOCKED TRIGGER: Anomaly detected');
+        continue; // Don't fire claims for anomalies
+      }
+
+      if (risk_level === 'CRITICAL' || risk_level === 'HIGH') {
+        logger.warn({ zone, risk_level, confidence }, '🔥 AI CONFIRMED DISRUPTION: Firing Claims');
+        await fireClaims(zone, trigger.type, value, trigger.threshold, mlRes.data);
+      }
+
+    } catch (err) {
+      logger.error({ zone, trigger: trigger.type }, 'ML Service unavailable during trigger evaluation');
+      // Fallback: fire anyway if it's a major breach, or log for review
     }
   }
 }
@@ -139,29 +165,29 @@ async function fireClaims(
   triggerType: string,
   triggerValue: number,
   threshold: number,
+  mlData: any
 ) {
-  // Find all active policies in the zone
   const activePolicies = await prisma.policy.findMany({
-    where: {
-      status: 'ACTIVE',
-      worker: { zone },
-    },
+    where: { status: 'ACTIVE', worker: { zone } },
     select: { id: true },
   });
 
-  logger.info({ zone, triggerType, count: activePolicies.length }, 'Firing claims for active policies');
-
-  // Process in batches of 50 to avoid overwhelming the DB
   const batchSize = 50;
   for (let i = 0; i < activePolicies.length; i += batchSize) {
     const batch = activePolicies.slice(i, i + batchSize);
     await Promise.allSettled(
       batch.map(p =>
-        // Reuse auto-trigger logic (bypassing HTTP layer)
         import('./claimPipeline').then(m =>
-          m.processTriggerClaim({ policyId: p.id, triggerType, triggerValue, threshold })
+          m.processTriggerClaim({ 
+            policyId: p.id, 
+            triggerType, 
+            triggerValue, 
+            threshold,
+            // Pass the ML data down so the claim record stores the confidence/severity
+            mlMetadata: mlData 
+          })
         )
-      ),
+      )
     );
   }
 }

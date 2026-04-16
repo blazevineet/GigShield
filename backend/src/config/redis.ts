@@ -1,6 +1,7 @@
 import IORedis from 'ioredis';
 import { logger } from './logger';
 
+// Exporting the instance as 'redis' (standard for IORedis projects)
 export const redis = new IORedis(process.env.REDIS_URL || 'redis://localhost:6379', {
   // Required for BullMQ to handle job queues correctly
   maxRetriesPerRequest: null, 
@@ -8,8 +9,8 @@ export const redis = new IORedis(process.env.REDIS_URL || 'redis://localhost:637
   lazyConnect: true,
 });
 
-redis.on('error', (err) => logger.error({ err }, 'Redis error'));
-redis.on('connect', () => logger.info('Redis connected'));
+redis.on('error', (err) => logger.error({ err }, 'Redis connection error'));
+redis.on('connect', () => logger.info('✓ Redis connection established'));
 
 export async function connectRedis() {
   try {
@@ -19,5 +20,6 @@ export async function connectRedis() {
     }
   } catch (err) {
     logger.error({ err }, 'Failed to connect to Redis');
+    throw err; // Re-throw so bootstrap knows it failed
   }
 }
