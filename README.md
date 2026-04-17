@@ -4,6 +4,33 @@
 
 > **India's first real-time income insurance for gig workers — powered by parametric triggers, zero paperwork, and instant UPI payouts.**
 
+📄 **[Full Project Report & Documentation (PDF)](https://drive.google.com/file/d/13jHeDluTmdZh7aFXyD4fvhiywEnlDDcm/view?usp=sharing)**
+
+---
+
+## 📋 Table of Contents
+
+- [Problem Statement](#-problem-statement)
+- [Persona](#-persona-q-commerce-delivery-partner-zepto--blinkit)
+- [Application Workflow](#-application-workflow)
+- [Demo Walkthrough](#-demo-walkthrough)
+- [Weekly Premium Model](#-weekly-premium-model)
+- [Parametric Triggers](#-parametric-triggers)
+- [Adversarial Defense & Anti-Spoofing Strategy](#️-adversarial-defense--anti-spoofing-strategy)
+- [AI/ML Integration Plan](#-aiml-integration-plan)
+- [Tech Stack](#-tech-stack)
+- [Repository Structure](#-repository-structure)
+- [Running Locally](#-running-locally)
+- [Expected Impact](#-expected-impact)
+- [Key Engineering Decisions](#-key-engineering-decisions)
+- [Development Plan](#-development-plan)
+- [Business Model](#-business-model)
+- [Guidewire Ecosystem Integration](#️-guidewire-ecosystem-integration)
+- [Payout Sustainability & Black Swan Risk](#-payout-sustainability--black-swan-risk)
+- [Data Governance & Privacy](#-data-governance--privacy)
+- [System Architecture](#️-system-architecture)
+- [Known Limitations & Risks](#️-known-limitations--risks)
+
 ---
 
 ## 🎯 Problem Statement
@@ -161,13 +188,9 @@ All triggers go through a 2-step validation before a claim is created:
 
 > **Context:** A coordinated syndicate of 500 delivery workers was identified spoofing GPS coordinates via third-party applications to fake presence inside active weather alert zones — triggering mass false parametric payouts. Simple GPS verification is insufficient against this attack vector. This section documents GigShield's multi-layered defense architecture.
 
----
-
 ### 1. Differentiation: Genuine Stranded Partner vs. GPS Spoofer
 
 GigShield does not rely on GPS coordinates alone. Every claim validation runs a **Behavioral Coherence Score (BCS)** — a composite signal that asks: *does the totality of this worker's observable behavior match what we would expect from someone genuinely caught in a disruption?*
-
-A legitimate stranded worker shows a specific, consistent behavioral signature:
 
 | Signal | Genuine Worker | GPS Spoofer |
 |---|---|---|
@@ -181,11 +204,7 @@ A legitimate stranded worker shows a specific, consistent behavioral signature:
 
 The BCS model (XGBoost classifier) is trained on these combined signals. A claim with BCS below a confidence threshold is routed to **Pending Review**, not auto-rejected.
 
----
-
 ### 2. Data Points: Detecting a Coordinated Fraud Ring
-
-Individual spoofing is hard. Coordinated syndicate behavior at scale produces statistically anomalous patterns that are detectable at the **zone and time-window level**, not just the individual level.
 
 **Signal Layer 1 — Individual Device Forensics**
 
@@ -196,26 +215,18 @@ Individual spoofing is hard. Coordinated syndicate behavior at scale produces st
 
 **Signal Layer 2 — Platform Behavioral Cross-Validation**
 
-- **Order attempt log:** The delivery platform API provides a log of order requests received and accepted/rejected per worker. A genuine disruption shows orders *offered and declined* due to zone shutdown — not zero activity. A spoofer at home shows *no order attempts at all* during the window.
-- **Dark store operational status:** GigShield directly queries whether the worker's assigned dark store was actually shut down during the event. If the store remained operational but a worker claims income loss, that is a contradiction.
+- **Order attempt log:** The delivery platform API provides a log of order requests received and accepted/rejected per worker. A genuine disruption shows orders *offered and declined* due to zone shutdown — not zero activity.
+- **Dark store operational status:** GigShield directly queries whether the worker's assigned dark store was actually shut down during the event.
 - **Peer activity comparison:** If 80% of active workers in the same zone continued working during an event a worker claims as disruptive, that is a strong counter-signal.
 
 **Signal Layer 3 — Syndicate / Ring Detection (Graph Analysis)**
 
-This is the critical layer for defeating *coordinated* fraud, not just individual spoofing.
+- **Temporal clustering analysis:** If 50+ claims fire within the same 15-minute window from the same zone during a single event, this is statistically anomalous.
+- **Social graph modeling:** Workers who share the same device network (same IP subnet at onboarding) are grouped into a risk graph. A fraud ring activating simultaneously shows up as a connected cluster. This is detectable using graph anomaly detection (Isolation Forest on the adjacency matrix of claim co-occurrence).
+- **Device fingerprint deduplication:** Fraudsters in a syndicate often use the same spoofing app configuration or purchase accounts in bulk.
+- **New account velocity:** Accounts created within 2 weeks of a major weather event and immediately triggering claims are high-risk.
 
-- **Temporal clustering analysis:** If 50+ claims fire within the same 15-minute window from the same zone during a single event, this is statistically anomalous. Genuine disruptions cause claim rates to rise gradually as workers become stranded — not spike simultaneously.
-- **Social graph modeling:** Workers who share the same Telegram group, WhatsApp contact, or device network (same IP subnet at onboarding) are grouped into a risk graph. A fraud ring activating simultaneously shows up as a connected cluster firing claims in lockstep. This is detectable using graph anomaly detection (Isolation Forest on the adjacency matrix of claim co-occurrence).
-- **Device fingerprint deduplication:** Fraudsters in a syndicate often use the same spoofing app configuration or purchase accounts in bulk. Identical device fingerprints, OS versions, and GPS metadata signatures across multiple "different" accounts is a strong syndicate signal.
-- **New account velocity:** Accounts created within 2 weeks of a major weather event and immediately triggering claims are high-risk. Legitimate workers have a claims history baseline.
-
----
-
-### 3. UX Balance: Handling Flagged Claims Without Penalizing Honest Workers
-
-This is the most critical design constraint. **A false positive — denying a genuine worker their payout in the middle of a flood — causes real financial harm and destroys trust.** The system must be aggressive against fraud while being humane toward legitimate workers.
-
-GigShield uses a **three-tier claim disposition model** rather than a binary approve/reject:
+### 3. UX Balance: Three-Tier Claim Disposition Model
 
 ```
                      ┌──────────────────────────────────┐
@@ -231,33 +242,15 @@ GigShield uses a **three-tier claim disposition model** rather than a binary app
     AUTO-APPROVED            SOFT HOLD (2 hr)        HARD HOLD
     Instant UPI payout    Passive data collection   Human review queue
                           No worker action needed   Worker notified
-                                    │                      │
-                          Auto-resolves if BCS     Can submit soft
-                          rises above 0.85         evidence (optional)
-                          within 2 hours
-                                    │
-                          If still < 0.85 at 2hr:
-                          Route to Tier 3
 ```
 
-**Tier 1 — Auto-Approved (BCS ≥ 0.85)**
-Instant payout. No friction for the majority of legitimate workers. Target: 90%+ of all genuine claims should clear this threshold without human intervention.
+**Tier 1 — Auto-Approved (BCS ≥ 0.85):** Instant payout. No friction for the majority of legitimate workers. Target: 90%+ of all genuine claims clear this threshold without human intervention.
 
-**Tier 2 — Soft Hold (BCS 0.50–0.85)**
-The claim is held for a maximum of 2 hours while the system passively collects additional telemetry. No action is required from the worker. This handles the common case of a genuine worker in a bad-signal environment whose BCS is temporarily low due to poor data quality (e.g., no GPS signal in a flooded basement). If BCS rises above threshold within the hold window, the payout fires automatically. The worker sees: *"Your claim is being verified — you'll hear back within 2 hours."*
+**Tier 2 — Soft Hold (BCS 0.50–0.85):** Claim held for a maximum of 2 hours while the system passively collects additional telemetry. No action required from the worker. If BCS rises above threshold within the hold window, the payout fires automatically. Worker sees: *"Your claim is being verified — you'll hear back within 2 hours."*
 
-**Tier 3 — Hard Hold (BCS < 0.50 or syndicate flag)**
-Claim is queued for human review. The worker is notified via SMS/app: *"We need to verify your claim. You may optionally share a photo or platform screenshot — but this is not required to receive your payout if our review confirms the event."* Critically: **the burden of proof is on GigShield, not the worker.** The worker is not asked to prove their innocence. The reviewer uses the insurer dashboard's fraud queue to examine the full signal stack and approve or deny within 4 hours. Denied claims include a plain-language explanation and a one-tap appeals link.
+**Tier 3 — Hard Hold (BCS < 0.50 or syndicate flag):** Claim queued for human review. Worker is notified and *may optionally* share a photo or platform screenshot — but this is not required. **The burden of proof is on GigShield, not the worker.** Denied claims include a plain-language explanation and a one-tap appeals link.
 
-**Why this approach is fair:**
-
-- Honest workers experiencing genuine network drops in bad weather have poor GPS signal quality — *which is itself evidence of a real weather event.* This is factored positively into the BCS, not negatively.
-- The soft-hold window is short enough (2 hours) that even Tier 2 workers receive same-day payouts during most events.
-- No worker is ever asked to submit documentation as a prerequisite to receiving a payout.
-- The appeals process is lightweight: a single tap, no paperwork, 24-hour resolution SLA.
-
-**Anti-Discrimination Safeguard:**
-The BCS model is audited quarterly for demographic bias. Workers in historically underserved zones (which may have worse cell tower coverage, older devices, and lower GPS signal quality) must not be disproportionately routed to Tier 3. If zone-level Tier 3 routing rates exceed 15%, that zone's BCS thresholds are recalibrated.
+**Anti-Discrimination Safeguard:** The BCS model is audited quarterly for demographic bias. If zone-level Tier 3 routing rates exceed 15%, that zone's BCS thresholds are recalibrated.
 
 ---
 
@@ -267,23 +260,20 @@ The BCS model is audited quarterly for demographic bias. Workers in historically
 - **Model Type:** Gradient Boosted Trees (XGBoost / LightGBM)
 - **Input Features:** Zone risk score, worker history, seasonal index, past claims
 - **Output:** Weekly premium multiplier (0.75x – 1.25x of base)
-- **Training Data:** Synthetic data (Phase 1-2), real data from pilot (Phase 3+)
 
 ### 2. Fraud Detection System
-- **Behavioral Coherence Score (BCS):** XGBoost classifier on multi-signal behavioral stack (see Adversarial Defense section)
+- **Behavioral Coherence Score (BCS):** XGBoost classifier on multi-signal behavioral stack
 - **Anomaly Detection:** Isolation Forest on claim patterns and temporal clustering
-- **GPS Spoofing Detection:** Mock location API flag + GPS jitter analysis + cell tower triangulation cross-validation
+- **GPS Spoofing Detection:** Mock location API flag + GPS jitter analysis + cell tower cross-validation
 - **Syndicate Ring Detection:** Graph anomaly detection on claim co-occurrence adjacency matrix
-- **Duplicate Claim Prevention:** Fingerprint matching on event + time + zone + worker ID
-- **Behavioral Profiling:** Flag workers whose inactivity pattern doesn't match disruption event window
 - **Rule-based hard filters:** Mock location active during event = immediate flag
 
 ### 3. Risk Heatmap (Insurer Dashboard)
 - **Model:** Time-series forecasting (Prophet / LSTM) on historical disruption + claims data
-- **Output:** Next-week risk score by pin code — helps insurer pre-price risk and manage exposure
+- **Output:** Next-week risk score by pin code for insurer pre-pricing and exposure management
 
 ### 4. NLP-based Social Disruption Monitor
-- **Approach:** Keyword + entity extraction on local news feeds and social media (Twitter/X)
+- **Approach:** Keyword + entity extraction on local news feeds and social media
 - **Goal:** Detect curfews, strikes, bandhs in near real-time for zones not covered by official APIs
 
 ---
@@ -330,7 +320,6 @@ The BCS model is audited quarterly for demographic bias. Workers in historically
 | Payment Payout | Razorpay Test Mode |
 | Platform Data | Mock API (simulated delivery history) |
 | Disaster Alerts | IMD RSS feeds |
-| Device Forensics | Android mock location API + device telemetry (PWA permissions) |
 
 **Infrastructure**
 
@@ -339,6 +328,234 @@ The BCS model is audited quarterly for demographic bias. Workers in historically
 | Hosting | Vercel (frontend) + Railway / Render (backend) |
 | CI/CD | GitHub Actions |
 | Monitoring | Sentry (errors) + Grafana (metrics) |
+
+---
+
+## 📁 Repository Structure
+
+```
+gigshield/
+├── README.md                  ← This file
+├── docker-compose.yml         ← Spins up PostgreSQL + Redis locally
+├── .env.example               ← Environment variable template
+├── frontend/                  ← React PWA (worker-facing)
+│   ├── package.json
+│   ├── vite.config.ts
+│   ├── src/
+│   └── public/
+├── backend/                   ← Node.js + Express API
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── src/
+│   │   ├── routes/
+│   │   ├── services/
+│   │   └── workers/           ← BullMQ job processors
+│   └── prisma/                ← DB schema + seed data
+├── ml/                        ← Python ML microservice (FastAPI)
+│   ├── requirements.txt
+│   ├── premium_engine/
+│   ├── fraud_detection/
+│   │   ├── bcs_model/         ← Behavioral Coherence Score
+│   │   └── syndicate_graph/   ← Ring detection
+│   └── nlp_monitor/
+├── mock-apis/                 ← Simulated platform & payment APIs
+└── docs/
+    └── architecture.png
+```
+
+---
+
+## 🚀 Running Locally
+
+This section covers everything you need to run GigShield on your machine. The project has three services: a React frontend, a Node.js backend, and a Python ML microservice. PostgreSQL and Redis are run via Docker.
+
+### Prerequisites
+
+Make sure you have the following installed:
+
+| Tool | Version | Purpose |
+|---|---|---|
+| Node.js | v18+ | Frontend & Backend |
+| npm | v9+ | Package management |
+| Python | 3.10+ | ML microservice |
+| pip | Latest | Python packages |
+| Docker | Latest | PostgreSQL + Redis |
+| Docker Compose | v2+ | Multi-container orchestration |
+| Git | Any | Clone the repo |
+
+### 1. Clone the Repository
+
+```bash
+git clone https://github.com/your-org/gigshield.git
+cd gigshield
+```
+
+### 2. Start Infrastructure (PostgreSQL + Redis via Docker)
+
+GigShield uses PostgreSQL as its primary database and Redis for live disruption state and BullMQ job queues. Both are managed via Docker Compose.
+
+```bash
+docker-compose up -d
+```
+
+This starts:
+- **PostgreSQL** on `localhost:5432` (database: `gigshield`, user: `gigshield`, password: `gigshield`)
+- **Redis** on `localhost:6379`
+
+Verify containers are running:
+
+```bash
+docker ps
+```
+
+You should see both `gigshield-postgres` and `gigshield-redis` containers with status `Up`.
+
+> **To stop containers:** `docker-compose down`
+> **To stop and wipe data:** `docker-compose down -v`
+
+### 3. Environment Variables
+
+Copy the example environment file and fill in the required values:
+
+```bash
+cp .env.example .env
+```
+
+Open `.env` and configure:
+
+```env
+# ─── Database ───────────────────────────────────────────
+DATABASE_URL="postgresql://gigshield:gigshield@localhost:5432/gigshield"
+
+# ─── Redis ──────────────────────────────────────────────
+REDIS_URL="redis://localhost:6379"
+
+# ─── Auth ───────────────────────────────────────────────
+JWT_SECRET="your-super-secret-jwt-key-change-this"
+JWT_EXPIRES_IN="7d"
+
+# ─── Razorpay (Test Mode) ───────────────────────────────
+RAZORPAY_KEY_ID="rzp_test_xxxxxxxxxxxx"
+RAZORPAY_KEY_SECRET="your_razorpay_test_secret"
+
+# ─── ML Service ─────────────────────────────────────────
+ML_SERVICE_URL="http://localhost:8000"
+
+# ─── External APIs (all free / no key needed) ───────────
+OPEN_METEO_BASE_URL="https://api.open-meteo.com/v1"
+
+# ─── App Config ─────────────────────────────────────────
+NODE_ENV="development"
+PORT=3001
+FRONTEND_URL="http://localhost:5173"
+```
+
+> The weather API (Open-Meteo) requires no API key. Razorpay test keys are free — sign up at razorpay.com.
+
+### 4. Backend Setup
+
+```bash
+cd backend
+npm install
+```
+
+Run database migrations and seed initial data:
+
+```bash
+npm run db:migrate     # Applies all Prisma migrations
+npm run db:seed        # Seeds mock workers, zones, and policies
+```
+
+Start the backend development server:
+
+```bash
+npm run dev
+```
+
+The backend will start at **http://localhost:3001**.
+
+To run the BullMQ trigger worker (in a separate terminal):
+
+```bash
+npm run worker
+```
+
+### 5. Frontend Setup
+
+Open a new terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+The frontend will start at **http://localhost:5173**.
+
+### 6. ML Microservice Setup
+
+Open another terminal:
+
+```bash
+cd ml
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+```
+
+The ML service will start at **http://localhost:8000**.
+
+API docs are auto-generated at **http://localhost:8000/docs** (Swagger UI).
+
+### 7. Verify Everything Is Running
+
+| Service | URL | Health Check |
+|---|---|---|
+| Frontend (React PWA) | http://localhost:5173 | Opens in browser |
+| Backend API | http://localhost:3001 | GET `/health` → `{ status: "ok" }` |
+| ML Microservice | http://localhost:8000 | GET `/health` → `{ status: "ok" }` |
+| PostgreSQL | localhost:5432 | `docker ps` shows container Up |
+| Redis | localhost:6379 | `docker ps` shows container Up |
+
+### 8. Optional: Database GUI
+
+To inspect the database visually via Prisma Studio:
+
+```bash
+cd backend
+npm run db:studio
+```
+
+Prisma Studio opens at **http://localhost:5555** — browse workers, policies, claims, and disruption events.
+
+### Quick Start Summary
+
+```bash
+# Terminal 1 — Infrastructure
+docker-compose up -d
+
+# Terminal 2 — Backend
+cd backend && npm install && npm run db:migrate && npm run db:seed && npm run dev
+
+# Terminal 3 — ML Service
+cd ml && pip install -r requirements.txt && uvicorn main:app --reload --port 8000
+
+# Terminal 4 — Frontend
+cd frontend && npm install && npm run dev
+
+# Terminal 5 (optional) — BullMQ Worker
+cd backend && npm run worker
+```
+
+### Troubleshooting
+
+| Issue | Fix |
+|---|---|
+| `ECONNREFUSED` on port 5432 | Docker isn't running. Start Docker Desktop and re-run `docker-compose up -d` |
+| `ECONNREFUSED` on port 6379 | Redis container not up. Check `docker ps` and re-run `docker-compose up -d` |
+| Prisma migration fails | Ensure `DATABASE_URL` in `.env` is correct and PostgreSQL is running |
+| ML service import errors | Ensure Python 3.10+ is active. Try `python3 -m pip install -r requirements.txt` |
+| Port already in use | Change `PORT` in `.env` or kill the existing process using that port |
+| Frontend can't reach backend | Confirm `FRONTEND_URL` in `.env` matches your frontend origin (default: `http://localhost:5173`) |
 
 ---
 
@@ -365,6 +582,12 @@ Delivery partners won't install a dedicated app. A PWA works in any browser, can
 **Why parametric over indemnity insurance?**
 Indemnity requires loss assessment — impossible to do in real time for a ₹400 daily wage earner. Parametric removes the adjuster entirely. The trigger is the proof.
 
+**Why PostgreSQL + Redis + Docker?**
+PostgreSQL handles durable, relational storage for policies and claims. Redis provides sub-millisecond read performance for live disruption state and powers BullMQ's job queue. Docker ensures consistent infrastructure across environments — any developer can run `docker-compose up -d` and have the exact same stack.
+
+**Why a three-tier claim disposition over binary approve/reject?**
+Binary systems either over-approve (exploitable) or over-reject (unfair to honest workers). A soft-hold tier with passive re-evaluation handles the ambiguous middle ground — poor signal quality in bad weather — without penalizing legitimate claimants or requiring them to prove their innocence.
+
 ---
 
 ## 🗺 Development Plan
@@ -372,7 +595,7 @@ Indemnity requires loss assessment — impossible to do in real time for a ₹40
 ### Phase 1 (Mar 4–20): Ideation & Foundation ✅
 - Define persona, disruption triggers, and premium model
 - Finalize tech stack
-- Write README (this document) — including Adversarial Defense architecture
+- Write README — including Adversarial Defense architecture
 - Record 2-minute strategy video
 - Set up GitHub repository structure
 
@@ -401,41 +624,13 @@ Indemnity requires loss assessment — impossible to do in real time for a ₹40
 
 **Why Q-Commerce (Zepto/Blinkit) over Food Delivery?** Q-Commerce riders operate in highly localized zones (dark store clusters), making hyperlocal risk modeling more precise and meaningful. Their deliveries are more sensitive to short, intense disruptions (a 2-hour rain event can halt an entire cluster), which is ideal for parametric insurance triggers.
 
-**Why Weekly pricing over Daily?** Weekly aligns exactly with platform payout cycles, is simple enough for low-literacy users to understand, and reduces premium collection friction. Daily would create cognitive overload; monthly is misaligned with gig income rhythms.
+**Why Weekly pricing over Daily?** Weekly aligns exactly with platform payout cycles, is simple enough for low-literacy users to understand, and reduces premium collection friction.
 
 **Why Parametric over Traditional Insurance?** Zero-touch. No claim forms. No adjuster visits. No documentation. The trigger either fires or it doesn't. This is the only model that can realistically serve a gig worker population at scale in India.
-
-**Why a three-tier claim disposition over binary approve/reject?** Binary systems either over-approve (exploitable) or over-reject (unfair to honest workers). A soft-hold tier with passive re-evaluation handles the ambiguous middle ground — poor signal quality in bad weather — without penalizing legitimate claimants or requiring them to prove their innocence.
-
----
-
-## ⚠️ Known Limitations & Risks
-
-| Limitation | Mitigation |
-|---|---|
-| Dependency on platform APIs for order data | Mock APIs in Phase 1–2; partnership agreements in production |
-| False negatives in low-data zones (sparse GPS, poor cell coverage) | BCS model recalibrated quarterly per zone; low signal in bad weather treated as positive fraud indicator |
-| Weather API reliability (Open-Meteo free tier) | IMD RSS feeds as fallback; dual-source validation before any trigger fires |
-| New worker cold-start problem (no claim history) | Default to zone-average risk profile for first 4 weeks |
-| Moral hazard at 80% coverage | Deliberate design cap — 20% uninsured keeps workers partially incentivised to work when safe |
-
----
-
-## 🚫 Out of Scope (By Design)
-
-The following are explicitly excluded per the problem statement and our design:
-
-- ❌ Health insurance or hospitalization coverage
-- ❌ Life insurance or accidental death benefits
-- ❌ Vehicle repair or damage coverage
-- ❌ Fuel cost reimbursement
-- ❌ Any coverage that requires manual claim filing or documentation
 
 ---
 
 ## 🖼️ UI/UX — Screen Descriptions
-
-*(Wireframes to be added in Phase 2. Described below for evaluators.)*
 
 **Worker Home Dashboard**
 ```
@@ -486,7 +681,7 @@ GigShield is designed as a **B2B2C platform** — distribution through gig platf
 GigShield is purpose-built to plug into the Guidewire insurance platform:
 
 - **Guidewire PolicyCenter** — Back-end micro-policy lifecycle management. Each weekly GigShield policy is issued, renewed, and cancelled as a structured policy object in PolicyCenter via Cloud API.
-- **Guidewire ClaimCenter** — Hard-hold claims (BCS < 0.50) are pushed into ClaimCenter as structured claim records for human adjuster review. The BCS score, signal breakdown, and fraud flags are passed as claim attributes — giving adjusters a full context view without manual investigation.
+- **Guidewire ClaimCenter** — Hard-hold claims (BCS < 0.50) are pushed into ClaimCenter as structured claim records for human adjuster review. The BCS score, signal breakdown, and fraud flags are passed as claim attributes.
 - **Guidewire DataHub** — Aggregated claims and loss ratio data flows into DataHub for actuarial analysis, enabling dynamic pricing refinement over time.
 
 This architecture means GigShield's parametric automation handles 90%+ of claims with zero human touch — and Guidewire's enterprise tooling handles the remaining edge cases at scale.
@@ -501,7 +696,7 @@ A major flood or city-wide heat wave could trigger thousands of simultaneous cla
 Each pin code zone has a weekly aggregated payout cap. If total claims in a zone exceed the MAZL, individual payouts are pro-rated. Workers are notified of this cap at onboarding.
 
 **2. Reinsurance Layer**
-A reinsurance treaty covers aggregate claims exceeding 150% of expected weekly loss ratio per city. This is standard parametric insurance practice and is built into the pricing model.
+A reinsurance treaty covers aggregate claims exceeding 150% of expected weekly loss ratio per city. Built into the pricing model.
 
 **3. Dynamic Exposure Management**
 The insurer dashboard's risk heatmap (Prophet/LSTM forecasting) gives insurers advance warning of high-risk weeks — allowing temporary policy cap reductions or premium adjustments before a predicted event window.
@@ -510,18 +705,16 @@ The insurer dashboard's risk heatmap (Prophet/LSTM forecasting) gives insurers a
 
 ## 🔒 Data Governance & Privacy
 
-GigShield collects sensitive device and behavioural signals. The following principles govern all data collection:
-
 | Principle | Implementation |
 |---|---|
-| **Minimal collection** | Device signals (accelerometer, GPS, app logs) collected only during the active 7-day policy window — never outside it |
-| **Purpose limitation** | Behavioural data used exclusively for BCS fraud scoring — never sold, profiled, or used for marketing |
-| **Anonymisation** | Worker identity is hashed in the ML pipeline — models train on anonymised zone + signal data, not named individuals |
-| **Consent-first** | All device permissions requested explicitly at onboarding with plain-language Tamil/Hindi/English explanations |
-| **Retention** | Raw device telemetry deleted after 30 days; aggregated zone-level model features retained for 12 months |
-| **Right to explanation** | Any denied or held claim includes a plain-language BCS breakdown — workers can see exactly which signals flagged |
+| **Minimal collection** | Device signals collected only during the active 7-day policy window |
+| **Purpose limitation** | Behavioural data used exclusively for BCS fraud scoring — never sold or profiled |
+| **Anonymisation** | Worker identity is hashed in the ML pipeline — models train on anonymised data |
+| **Consent-first** | All device permissions requested explicitly at onboarding with plain-language explanations |
+| **Retention** | Raw device telemetry deleted after 30 days; aggregated zone-level features retained for 12 months |
+| **Right to explanation** | Any denied or held claim includes a plain-language BCS breakdown |
 
-GigShield complies with the **Digital Personal Data Protection Act (DPDPA) 2023** framework for data fiduciaries.
+GigShield complies with the **Digital Personal Data Protection Act (DPDPA) 2023** framework.
 
 ---
 
@@ -557,30 +750,29 @@ GigShield complies with the **Digital Personal Data Protection Act (DPDPA) 2023*
 
 ---
 
-## 📁 Repository Structure
+## ⚠️ Known Limitations & Risks
 
-```
-gigshield/
-├── README.md                  ← This file
-├── frontend/                  ← React PWA (worker-facing)
-│   ├── src/
-│   └── public/
-├── backend/                   ← Node.js + Express API
-│   ├── src/
-│   │   ├── routes/
-│   │   ├── services/
-│   │   └── workers/           ← BullMQ job processors
-│   └── prisma/                ← DB schema
-├── ml/                        ← Python ML microservice
-│   ├── premium_engine/
-│   ├── fraud_detection/
-│   │   ├── bcs_model/         ← Behavioral Coherence Score
-│   │   └── syndicate_graph/   ← Ring detection
-│   └── nlp_monitor/
-├── mock-apis/                 ← Simulated platform & payment APIs
-└── docs/
-    └── architecture.png
-```
+| Limitation | Mitigation |
+|---|---|
+| Dependency on platform APIs for order data | Mock APIs in Phase 1–2; partnership agreements in production |
+| False negatives in low-data zones (sparse GPS, poor cell coverage) | BCS model recalibrated quarterly per zone; low signal in bad weather treated as positive indicator |
+| Weather API reliability (Open-Meteo free tier) | IMD RSS feeds as fallback; dual-source validation before any trigger fires |
+| New worker cold-start problem (no claim history) | Default to zone-average risk profile for first 4 weeks |
+| Moral hazard at 80% coverage | Deliberate design cap — 20% uninsured keeps workers partially incentivised to work when safe |
+
+---
+
+## 🚫 Out of Scope (By Design)
+
+- ❌ Health insurance or hospitalization coverage
+- ❌ Life insurance or accidental death benefits
+- ❌ Vehicle repair or damage coverage
+- ❌ Fuel cost reimbursement
+- ❌ Any coverage that requires manual claim filing or documentation
+
+---
+
+📄 **[Full Project Report & Documentation (PDF)](https://drive.google.com/file/d/13jHeDluTmdZh7aFXyD4fvhiywEnlDDcm/view?usp=sharing)**
 
 ---
 
