@@ -394,6 +394,8 @@ Indemnity requires loss assessment — impossible to do in real time for a ₹40
 - 5-minute demo video
 
 ---
+##pitch deck
+link- https://drive.google.com/file/d/13jHeDluTmdZh7aFXyD4fvhiywEnlDDcm/view?usp=sharing
 
 ## 📌 Key Design Decisions
 
