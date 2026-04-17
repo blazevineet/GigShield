@@ -1,6 +1,6 @@
 /**
  * GigShield — API Service Layer
- * Updated for Tab Isolation and Profile Syncing.
+ * Updated for Phase 3 Intelligence, Admin Superpowers, and Type Safety.
  */
 
 import { apiClient, mlClient } from './client';
@@ -17,10 +17,10 @@ export interface AuthResponse {
     id: string; 
     name: string; 
     phone: string; 
-    role: string; 
+    role: 'ADMIN' | 'WORKER' | 'INSURER'; 
     hasProfile: boolean; 
     upiId?: string; 
-    zone?: string; // Added for zone-based logic
+    zone?: string; 
   };
 }
 
@@ -35,6 +35,20 @@ export interface PremiumPrediction {
   explanation:     string;
 }
 
+// Added zone to Policy for Admin Hub mapping
+export interface Policy {
+  id: string;
+  workerId: string;
+  status: string;
+  premiumAmount: number;
+  coverageAmount: number;
+  zone?: string; // Critical for Geographical Risk Exposure
+  createdAt: string;
+  worker?: {
+    user: { name: string; phone: string }
+  }
+}
+
 export interface Claim {
   id: string;
   policyId: string;
@@ -43,10 +57,10 @@ export interface Claim {
   threshold: number;
   payoutAmount: number;
   status: 'PENDING' | 'AUTO_APPROVED' | 'SOFT_HOLD' | 'HARD_HOLD' | 'PAID' | 'REJECTED' | 'SETTLED' | 'MANUAL_REVIEW';
-  // Standardized both naming conventions to prevent UI "undefined" bugs
   aiConfidence?: number;
   isAnomaly?: boolean;
   severity?: number;
+  zone?: string; // Added to match policy zone for heatmap logic
   mlMetadata?: { 
     is_anomaly: boolean; 
     confidence: number; 
@@ -54,11 +68,16 @@ export interface Claim {
   }; 
   firedAt: string;
   createdAt: string;
+  policy?: {
+    worker: {
+      user: { name: string; phone: string }
+    }
+  }
 }
 
 // ─── Auth ──────────────────────────────────────────────────
 export const authApi = {
-  sendOtp:      (data: SendOtpPayload)   => apiClient.post('/auth/otp/send',   data),
+  sendOtp:     (data: SendOtpPayload)   => apiClient.post('/auth/otp/send',   data),
   verifyOtp:    (data: VerifyOtpPayload) => apiClient.post<AuthResponse>('/auth/otp/verify', data),
   refreshToken: (token: string)           => apiClient.post('/auth/refresh', { refreshToken: token }),
   logout:        ()                       => apiClient.post('/auth/logout'),
@@ -67,11 +86,10 @@ export const authApi = {
 
 // ─── Workers ───────────────────────────────────────────────
 export const workerApi = {
-  // Returns updated user info so we can update the Store
   createProfile: (data: any) => apiClient.post('/workers/profile', data), 
   updateProfile: (data: any) => apiClient.post('/workers/profile', data), 
-  
   getProfile:    ()          => apiClient.get('/workers/profile'),
+  listAll:       ()          => apiClient.get('/workers'),
   pingGps:       (data: { lat: number; lon: number; accuracy?: number; speed?: number }) => 
     apiClient.post('/workers/gps', data),
 };
@@ -79,13 +97,19 @@ export const workerApi = {
 // ─── Policies ──────────────────────────────────────────────
 export const policyApi = {
   create:    (data: any)      => apiClient.post('/policies',       data),
-  list:      (params?: any)   => apiClient.get<{ data: any[] }>('/policies', { params }),
+  /**
+   * IMPORTANT: When called by an ADMIN, the backend returns ALL policies.
+   * Interface updated to use the Policy type.
+   */
+  list:      (params?: { status?: string; workerId?: string }) => 
+    apiClient.get<{ data: Policy[] }>('/policies', { params }),
   getById:   (id: string)     => apiClient.get(`/policies/${id}`),
 };
 
 // ─── Claims ────────────────────────────────────────────────
 export const claimApi = {
-  list:      (params?: any)  => apiClient.get<{ data: Claim[] }>('/claims', { params }),
+  list:      (params?: { status?: string; policyId?: string }) => 
+    apiClient.get<{ data: Claim[] }>('/claims', { params }),
   getById:   (id: string)    => apiClient.get(`/claims/${id}`),
   create:    (data: { 
     policyId: string; 
@@ -104,14 +128,15 @@ export const triggerApi = {
   getHistory:    (params?: any)  => apiClient.get('/triggers/history', { params }),
 };
 
-// ─── Admin ─────────────────────────────────────────────────
+// ─── Admin (Insurer Portal) ────────────────────────────────
 export const adminApi = {
-  getStats:        ()            => apiClient.get('/admin/stats'),
-  getZoneHeatmap:  ()            => apiClient.get('/admin/heatmap'),
-  getForecast:     ()            => apiClient.get('/admin/forecast'),
+  getStats:         () => apiClient.get('/admin/stats'),
+  getZoneHeatmap:   () => apiClient.get('/admin/heatmap'),
+  getForecast:      () => apiClient.get('/admin/forecast'),
+  getAnomalyLogs:   () => apiClient.get('/admin/anomalies'),
 };
 
-// ─── ML Service ────────────────────────────────────────────
+// ─── ML Service (Python Backend) ───────────────────────────
 export const mlApi = {
   predictPremium: (data: any) => mlClient.post<PremiumPrediction>('/premium/predict', data),
   scoreRisk: (data: {

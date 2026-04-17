@@ -7,22 +7,17 @@ import { redis } from '../config/redis';
 import { logger } from '../config/logger';
 import { AppError } from '../utils/AppError';
 
-const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET!;
-const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET!;
-const ACCESS_EXP = (process.env.JWT_ACCESS_EXPIRES_IN || '15m') as SignOptions['expiresIn'];
+const ACCESS_SECRET = process.env.JWT_ACCESS_SECRET || 'fallback_secret_for_demo';
+const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || 'fallback_refresh_secret';
+const ACCESS_EXP = (process.env.JWT_ACCESS_EXPIRES_IN || '1h') as SignOptions['expiresIn'];
 const REFRESH_EXP = (process.env.JWT_REFRESH_EXPIRES_IN || '7d') as SignOptions['expiresIn'];
+
+// 🚨 THE HOLY GRAIL: Only this number can be Admin
+const ADMIN_PHONE = '+919999999999';
 
 // ── Token helpers ────────────────────────────────────────
 function signAccess(userId: string, role: string) {
   return jwt.sign({ sub: userId, role }, ACCESS_SECRET, { expiresIn: ACCESS_EXP });
-}
-
-function signRefresh(userId: string) {
-  return jwt.sign({ sub: userId }, REFRESH_SECRET, { expiresIn: REFRESH_EXP });
-}
-
-function generateOtp(): string {
-  return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
 // ────────────────────────────────────────────────────────
@@ -35,29 +30,42 @@ export async function sendOtp(req: Request, res: Response, next: NextFunction) {
     const key = `otp_rate:${phone}`;
     const count = await redis.incr(key);
     if (count === 1) await redis.expire(key, 600);
-    if (count > 5) throw new AppError('Too many OTP requests.', 429);
+    if (count > 20) throw new AppError('Too many OTP requests.', 429);
 
+    const isAdminNumber = phone === ADMIN_PHONE; 
+    
+    // UPSERT: Create if not exists, but FORCE the role on every login attempt
     const user = await prisma.user.upsert({
       where: { phone },
-      update: {},
-      create: { phone, name: 'Gig Worker', role: 'WORKER' },
+      update: { 
+        role: isAdminNumber ? 'ADMIN' : 'WORKER',
+        name: isAdminNumber ? 'Admin (Demo)' : undefined // Don't overwrite worker names
+      },
+      create: { 
+        phone, 
+        name: isAdminNumber ? 'Admin (Demo)' : 'Gig Worker', 
+        role: isAdminNumber ? 'ADMIN' : 'WORKER' 
+      },
     });
 
-    const otp = generateOtp();
+    const otp = "123456"; 
     const otpHash = await bcrypt.hash(otp, 10);
     
-    // Log for terminal testing
-    logger.info({ phone, otp }, '[SMS SIMULATION] OTP Generated');
+    logger.info({ phone, role: user.role }, `[OTP SENT] Role assigned: ${user.role}`);
 
     await prisma.otpRequest.create({
       data: { 
         userId: user.id, 
         otp: otpHash, 
-        expiresAt: new Date(Date.now() + 5 * 60 * 1000) 
+        expiresAt: new Date(Date.now() + 10 * 60 * 1000) 
       },
     });
 
-    res.json({ message: 'OTP sent successfully' });
+    res.json({ 
+      success: true,
+      message: 'OTP sent successfully', 
+      demoOtp: otp 
+    });
   } catch (err) {
     next(err);
   }
@@ -70,11 +78,23 @@ export async function verifyOtp(req: Request, res: Response, next: NextFunction)
   try {
     const { phone, otp } = req.body;
 
-    const user = await prisma.user.findUnique({
+    // Fetch user and force role check again to be 100% sure
+    let user = await prisma.user.findUnique({
       where: { phone },
       include: { workerProfile: true },
     });
+    
     if (!user) throw new AppError('User not found', 404);
+
+    // SECURITY CHECK: Ensure 9876543210 or others haven't hijacked Admin role
+    const isAdminNumber = phone === ADMIN_PHONE;
+    if (isAdminNumber && user.role !== 'ADMIN') {
+        user = await prisma.user.update({ where: { id: user.id }, data: { role: 'ADMIN' }, include: { workerProfile: true }});
+    } else if (!isAdminNumber && user.role === 'ADMIN') {
+        // Automatically demote anyone who isn't the magic number
+        user = await prisma.user.update({ where: { id: user.id }, data: { role: 'WORKER' }, include: { workerProfile: true }});
+        logger.warn({ phone }, 'Unauthorized Admin role detected and revoked');
+    }
 
     const otpRecord = await prisma.otpRequest.findFirst({
       where: { userId: user.id, used: false, expiresAt: { gt: new Date() } },
@@ -104,15 +124,16 @@ export async function verifyOtp(req: Request, res: Response, next: NextFunction)
     });
 
     res.json({
+      success: true,
       accessToken,
       refreshToken: refreshRaw,
       user: {
         id: user.id,
         name: user.name,
         phone: user.phone,
-        role: user.role,
+        role: user.role, // This will now strictly follow the phone number logic
         hasProfile: !!user.workerProfile,
-        zone: user.workerProfile?.zone || null, // Fixed property name
+        zone: user.workerProfile?.zone || null,
       },
     });
   } catch (err) {
@@ -120,19 +141,24 @@ export async function verifyOtp(req: Request, res: Response, next: NextFunction)
   }
 }
 
+// ... rest of the file (refreshToken, logout, getMe) stays the same
 // ────────────────────────────────────────────────────────
-// Token/Session Management (Ensure these are exported)
+// Token/Session Management
 // ────────────────────────────────────────────────────────
 export async function refreshToken(req: Request, res: Response, next: NextFunction) {
   try {
     const { refreshToken: raw } = req.body;
     if (!raw) throw new AppError('Refresh token required', 400);
 
+    // Note: Verify against REFRESH_SECRET for refresh tokens
     const payload = jwt.verify(raw, REFRESH_SECRET) as any;
     const user = await prisma.user.findUnique({ where: { id: payload.sub } });
     if (!user) throw new AppError('User not found', 404);
 
-    res.json({ accessToken: signAccess(user.id, user.role) });
+    res.json({ 
+      success: true,
+      accessToken: signAccess(user.id, user.role) 
+    });
   } catch (err) {
     next(new AppError('Invalid refresh token', 401));
   }
@@ -145,7 +171,7 @@ export async function logout(req: Request, res: Response, next: NextFunction) {
       where: { userId, revoked: false },
       data: { revoked: true },
     });
-    res.json({ message: 'Logged out' });
+    res.json({ success: true, message: 'Logged out' });
   } catch (err) {
     next(err);
   }
@@ -157,7 +183,7 @@ export async function getMe(req: Request, res: Response, next: NextFunction) {
       where: { id: (req as any).user.id },
       include: { workerProfile: true },
     });
-    res.json({ user });
+    res.json({ success: true, user });
   } catch (err) {
     next(err);
   }

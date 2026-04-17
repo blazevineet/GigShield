@@ -21,7 +21,17 @@ export async function listClaims(req: Request, res: Response, next: NextFunction
       const profile = await prisma.workerProfile.findUnique({
         where: { userId: (req as any).user.id },
       });
-      if (!profile) throw new AppError('Worker profile not found', 404);
+
+      // FIX: If no profile exists yet, return empty data gracefully 
+      // instead of throwing an error or leaking data.
+      if (!profile) {
+        return res.json({
+          data: [],
+          meta: { total: 0, page: 1, limit: parseInt(limit as string), pages: 0 }
+        });
+      }
+
+      // Filter claims by the worker's specific profile ID
       where.policy = { workerId: profile.id };
     }
 
@@ -65,6 +75,7 @@ export async function getClaim(req: Request, res: Response, next: NextFunction) 
     
     if (!claim) throw new AppError('Claim not found', 404);
     
+    // Safety check: Don't let workers peek at other workers' claims via URL guessing
     if ((req as any).user.role === 'WORKER' && claim.policy.worker.userId !== (req as any).user.id) {
         throw new AppError('Unauthorized access to claim', 403);
     }
@@ -75,11 +86,6 @@ export async function getClaim(req: Request, res: Response, next: NextFunction) 
   }
 }
 
-/**
- * POST /claims (The Phase 3 Intelligence Simulation)
- * LEVELLED UP: This now calls the unified pipeline to ensure ML & Payouts 
- * are triggered exactly like the automated worker.
- */
 export async function autoTriggerClaim(req: Request, res: Response, next: NextFunction) {
   try {
     const { policyId, triggerType, triggerValue, threshold, mlMetadata } = req.body;
@@ -90,20 +96,20 @@ export async function autoTriggerClaim(req: Request, res: Response, next: NextFu
     });
 
     if (!policy) throw new AppError('Policy not found', 404);
+    
+    // Safety: Ensure user owns this policy before they can simulate a claim
+    if ((req as any).user.role === 'WORKER' && policy.worker.userId !== (req as any).user.id) {
+        throw new AppError('You can only simulate claims for your own policy', 403);
+    }
+
     if (policy.status !== 'ACTIVE') throw new AppError('Policy is not active', 400);
 
-    /**
-     * PHASE 3 INTEGRATION: 
-     * Instead of manual calculation here, we hand off to the Pipeline.
-     * This ensures 'AUTO_APPROVED' and 'MANUAL_REVIEW' statuses are 
-     * determined by the ML results (mlMetadata).
-     */
     const claim = await processTriggerClaim({
       policyId,
       triggerType,
       triggerValue: Number(triggerValue),
       threshold: Number(threshold),
-      mlMetadata // This allows the frontend to simulate "High Confidence" or "Anomaly"
+      mlMetadata 
     });
 
     if (!claim) {
@@ -120,9 +126,6 @@ export async function autoTriggerClaim(req: Request, res: Response, next: NextFu
   }
 }
 
-// ────────────────────────────────────────────────────────
-// PATCH /claims/:id/review (Admin Decision)
-// ────────────────────────────────────────────────────────
 export async function reviewClaim(req: Request, res: Response, next: NextFunction) {
   try {
     const { decision, adjusterNotes } = req.body;
@@ -138,7 +141,6 @@ export async function reviewClaim(req: Request, res: Response, next: NextFunctio
 
     if (!claim) throw new AppError('Claim not found', 404);
     
-    // Status sync with Phase 3 Schema (MANUAL_REVIEW -> PAID/REJECTED)
     const newStatus = decision === 'APPROVED' ? 'PAID' : 'REJECTED';
     
     const updated = await prisma.claim.update({
@@ -146,7 +148,6 @@ export async function reviewClaim(req: Request, res: Response, next: NextFunctio
       data: { status: newStatus as any, adjusterNotes, resolvedAt: new Date() },
     });
 
-    // If manually approved, trigger the immediate payout service
     if (newStatus === 'PAID') {
       const { initiatePayout } = await import('../services/payoutService');
       await initiatePayout({

@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
-import { useAdminStats } from '../hooks/useApi';
-import { useAuthStore } from '../store/authStore'; 
+import { useState, useEffect, useMemo } from 'react';
+import { usePolicies, useClaims } from '../hooks/useApi'; // Removed useAdminStats
 import styles from './pages.module.css';
 
 const FORECAST = [
@@ -10,119 +9,123 @@ const FORECAST = [
   { day: 'Sat 18 Apr', rain: 'Low', heat: 'Med', risk: 'Low', col: 'var(--green)' },
 ];
 
-const HEAT_MOCK = [
-  { zone: 'Velachery', risk: 92, claims: 24, col: 'var(--red)' },
-  { zone: 'Tambaram', risk: 71, claims: 12, col: 'var(--red)' },
-  { zone: 'Porur', risk: 45, claims: 5, col: 'var(--amber)' },
-  { zone: 'Adyar', risk: 20, claims: 1, col: 'var(--green)' },
-];
+// Demo Configuration
+const DEMO_BASELINE_POLICIES = 85; 
 
 export default function AdminDashboard() {
-  const { data: statsData, isLoading } = useAdminStats();
+  // REMOVED: useAdminStats and statsLoading as they were unused due to our new logic
+  const { data: policiesData, isLoading: policiesLoading } = usePolicies(); 
+  const { data: claimsData } = useClaims();     
   
-  // Destructured clearSession and used the underscore trick to satisfy the linter
-  const { clearSession: _clearSession } = useAuthStore(); 
+  // REMOVED: useAuthStore/user as it was not being used in the component body
   const [localClaimsCount, setLocalClaimsCount] = useState(0);
 
-  // --- Real-time Sync Logic ---
+  // --- Real-time Sync of Simulated Claims ---
   useEffect(() => {
     const sync = () => {
-      const claims = JSON.parse(localStorage.getItem('GS_SIM_CLAIMS') || '[]');
-      setLocalClaimsCount(claims.length);
+      let globalSimCount = 0;
+      const storageKeyPrefix = 'GS_SIM_CLAIMS_';
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (key && key.startsWith(storageKeyPrefix)) {
+          try {
+            const claims = JSON.parse(localStorage.getItem(key) || '[]');
+            globalSimCount += claims.length;
+          } catch (e) { console.error("Sync error", e); }
+        }
+      }
+      setLocalClaimsCount(globalSimCount);
     };
+
     sync();
-    window.addEventListener('storage', sync); 
-    return () => window.removeEventListener('storage', sync);
+    window.addEventListener('storage', sync);
+    window.addEventListener('local-claims-updated', sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener('local-claims-updated', sync);
+    };
   }, []);
 
-  const stats = statsData?.data;
+  // --- Data Extraction ---
+  const realPolicies = policiesData?.data || [];
+  const realClaims = claimsData?.data || [];
 
-  // Level Up Metrics
-  const basePolicies = stats?.activePolicies ?? 1402;
-  const totalPolicies = basePolicies + (localClaimsCount * 5); 
-  const riskExposure = totalPolicies * 1250;
+  // --- Dynamic Zone Calculation ---
+  const zonesData = useMemo(() => {
+    const zones: Record<string, { name: string; policies: number; claims: number }> = {
+      "Chennai Central": { name: "Chennai Central Hub", policies: 35, claims: 2 } // Mock baseline for variety
+    };
+
+    realPolicies.forEach((p: any) => {
+      const zName = p.zone || "Chennai Hub";
+      if (!zones[zName]) zones[zName] = { name: zName, policies: 0, claims: 0 };
+      zones[zName].policies += 1;
+    });
+
+    realClaims.forEach((c: any) => {
+      const zName = c.zone || "Chennai Hub";
+      if (zones[zName]) zones[zName].claims += 1;
+    });
+
+    return Object.values(zones);
+  }, [realPolicies, realClaims]);
+
+  // --- Master Calculations ---
+  const displayPoliciesCount = realPolicies.length + DEMO_BASELINE_POLICIES;
+  const displayClaimsCount = realClaims.length + localClaimsCount;
+  const displayExposure = displayPoliciesCount * 1250;
   
-  const currentLossRatio = localClaimsCount > 0 
-    ? Math.min(94, 64.2 + (localClaimsCount * 1.5)) 
-    : 64.2; 
-    
-  const riskCapital = 48.2; 
+  // Loss Ratio Calculation
+  const currentLossRatio = displayPoliciesCount > 0 
+    ? (displayClaimsCount / (displayPoliciesCount * 0.45)) * 100 
+    : 0;
 
-  // --- THE FINAL FIX: Tab Isolation ---
   const handleSwitchToWorker = () => {
-    // 1. Reference _clearSession if needed (redundant check but safe)
-    if (_clearSession && false) _clearSession();
-
-    // 2. Open login in a new tab with the force flag. 
-    // Because authStore is now on sessionStorage, this won't log the Admin out.
-    const url = `/login?forceLogout=true&t=${Date.now()}`;
-    window.open(url, '_blank');
+    window.open(`/login?forceLogout=true&t=${Date.now()}`, '_blank');
   };
 
   return (
     <div className={`${styles.page} anim-in`}>
-      <header style={{ 
-        marginBottom: '30px', 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'flex-start' 
-      }}>
+      <header style={{ marginBottom: '30px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
         <div>
           <h1 className={styles.pageTitle}>🏛️ Insurer Command Center</h1>
-          <p className={styles.pageSub}>Solvency Monitoring · Geographical Risk Exposure · Real-time Loss Ratios</p>
+          <p className={styles.pageSub}>Real-time Solvency & Multi-Zone Risk Exposure</p>
         </div>
         
-        <button 
-          onClick={handleSwitchToWorker}
-          onMouseOver={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.1)'}
-          onMouseOut={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.05)'}
-          style={{
-            padding: '8px 16px',
-            background: 'rgba(255,255,255,0.05)',
-            color: '#94a3b8', 
-            border: '1px solid rgba(255,255,255,0.1)',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            fontSize: '11px',
-            fontWeight: '600',
-            transition: 'all 0.2s ease',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '8px'
-          }}
-        >
+        <button className={styles.btn} onClick={handleSwitchToWorker} style={{ fontSize: '11px' }}>
           <span>🛵</span> Switch to Worker Portal
         </button>
       </header>
 
-      {/* Stats Grid */}
       <div className={styles.g4}>
         <div className={styles.stat}>
-          <div className={styles.statLabel}>Active Policies</div>
+          <div className={styles.statLabel}>Active Policies (Live)</div>
           <div className={`${styles.statValue} ${styles.cGreen}`}>
-            {isLoading ? '...' : totalPolicies.toLocaleString()}
+            {policiesLoading ? '...' : displayPoliciesCount}
           </div>
-          <div className={styles.statSub}>+{(localClaimsCount * 2)} new today</div>
+          <div className={styles.statSub}>{realPolicies.length} Real | {DEMO_BASELINE_POLICIES} Demo</div>
         </div>
         
         <div className={styles.stat}>
           <div className={styles.statLabel}>Total Risk Exposure</div>
-          <div className={`${styles.statValue} ${styles.cRed}`}>₹{(riskExposure / 100000).toFixed(2)}L</div>
-          <div className={styles.statSub}>Max Liability Cap</div>
+          <div className={`${styles.statValue} ${styles.cRed}`}>₹{(displayExposure / 100000).toFixed(2)}L</div>
+          <div className={styles.statSub}>Projected Liability Cap</div>
         </div>
 
         <div className={styles.stat}>
           <div className={styles.statLabel}>Current Loss Ratio</div>
-          <div className={`${styles.statValue} ${currentLossRatio > 80 ? styles.cRed : styles.cAmber}`}>
+          <div className={`${styles.statValue} ${currentLossRatio > 60 ? styles.cRed : styles.cAmber}`}>
             {currentLossRatio.toFixed(1)}%
           </div>
-          <div className={styles.statSub}>Critical Threshold: 85%</div>
+          <div className={styles.statSub}>
+            {localClaimsCount > 0 ? `Alert: ${localClaimsCount} new demo claims` : 'Optimal solvency range'}
+          </div>
         </div>
 
         <div className={styles.stat}>
           <div className={styles.statLabel}>Active Risk Capital</div>
-          <div className={styles.statValue}>₹{riskCapital}L</div>
-          <div className={styles.statSub} style={{ color: 'var(--green)' }}>Solvency: 1.28x ✓</div>
+          <div className={styles.statValue}>₹48.2L</div>
+          <div className={styles.statSub} style={{ color: 'var(--green)' }}>Solvency: 1.42x ✓</div>
         </div>
       </div>
 
@@ -130,54 +133,54 @@ export default function AdminDashboard() {
         <div className={styles.card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
             <h3 className={styles.cardTitle} style={{ margin: 0 }}>Geographical Risk Exposure</h3>
-            <span className={styles.badge} style={{ fontSize: 10, background: 'var(--red)', fontWeight: 800 }}>LIVE SATELLITE OVERLAY</span>
+            <span className={styles.badge} style={{ fontSize: 10, background: 'var(--red)', fontWeight: 800 }}>LIVE CLUSTER MAP</span>
           </div>
           
           <div style={{
-            height: 160,
-            background: `linear-gradient(rgba(10,11,14,0.7), rgba(10,11,14,0.9)), url('https://api.mapbox.com/styles/v1/mapbox/dark-v10/static/80.2,13.0,10/400x200?access_token=mock') center/cover`,
-            borderRadius: 8,
+            height: 180,
+            background: `linear-gradient(rgba(10,11,14,0.8), rgba(10,11,14,0.95)), url('https://api.mapbox.com/styles/v1/mapbox/dark-v10/static/80.2,13.0,10/400x200?access_token=mock') center/cover`,
+            borderRadius: 12,
             marginBottom: 20,
             position: 'relative',
             border: '1px solid var(--border)',
             overflow: 'hidden'
           }}>
-            <div className="pulse" style={{ position: 'absolute', top: '30%', left: '40%', width: 50, height: 50, background: 'var(--red)', filter: 'blur(20px)', opacity: 0.6 }} />
-            <div className="pulse" style={{ position: 'absolute', top: '55%', left: '65%', width: 40, height: 40, background: 'var(--amber)', filter: 'blur(15px)', opacity: 0.4 }} />
+            <div className="pulse" style={{ position: 'absolute', top: '40%', left: '45%', width: 60, height: 60, background: 'var(--red)', filter: 'blur(25px)', opacity: 0.4 }} />
+            <div className="pulse" style={{ position: 'absolute', top: '60%', left: '30%', width: 40, height: 40, background: 'var(--amber)', filter: 'blur(20px)', opacity: 0.3 }} />
             
-            <div style={{ position: 'absolute', top: 10, right: 10, textAlign: 'right' }}>
-              <div style={{ fontSize: 10, color: 'var(--red)', fontWeight: 800 }}>● VELACHERY: CRITICAL</div>
-              <div style={{ fontSize: 10, color: 'var(--amber)', fontWeight: 800 }}>● T-NAGAR: WARNING</div>
-            </div>
-            
-            <div style={{ position: 'absolute', bottom: 10, left: 10, fontSize: 9, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>
-              MAP ENGINE: ACT-RISK v4.2 | LIVE_GPS_SYNC
+            <div style={{ position: 'absolute', top: 15, right: 15, textAlign: 'right', background: 'rgba(0,0,0,0.5)', padding: '8px', borderRadius: '6px' }}>
+              <div style={{ fontSize: 10, color: 'var(--green)', fontWeight: 800 }}>● {displayPoliciesCount} NODES ACTIVE</div>
+              <div style={{ fontSize: 10, color: 'var(--red)', fontWeight: 800 }}>● {displayClaimsCount} TOTAL SETTLEMENTS</div>
             </div>
           </div>
 
-          {HEAT_MOCK.map(h => (
-            <div className={styles.heatRow} key={h.zone}>
-              <div className={styles.heatZone}>{h.zone}</div>
-              <div style={{ flex: 1 }}>
-                <div className={styles.pbar}>
-                  <div className={`${styles.pfill} ${h.risk > 80 ? 'pulse' : ''}`} 
-                       style={{ width: `${h.risk}%`, background: h.col }} />
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {zonesData.map((zone, idx) => {
+              const ratio = zone.policies > 0 ? (zone.claims / zone.policies) * 100 : 0;
+              return (
+                <div className={styles.heatRow} key={idx}>
+                  <div className={styles.heatZone} style={{ fontSize: '11px', width: '120px' }}>{zone.name}</div>
+                  <div style={{ flex: 1 }}>
+                    <div className={styles.pbar}>
+                      <div className={styles.pfill} style={{ width: `${Math.min(ratio, 100)}%`, background: ratio > 50 ? 'var(--red)' : 'var(--green)' }} />
+                    </div>
+                  </div>
+                  <span className={styles.mono} style={{ color: 'var(--text)', width: 80, textAlign: 'right', fontWeight: 700, fontSize: 11 }}>
+                    {ratio.toFixed(1)}% Loss
+                  </span>
                 </div>
-              </div>
-              <span className={styles.mono} style={{ color: h.col, width: 90, textAlign: 'right', fontWeight: 700, fontSize: 12 }}>
-                {h.risk}% · {h.claims + (h.zone === 'Velachery' ? localClaimsCount : 0)}cl
-              </span>
-            </div>
-          ))}
+              );
+            })}
+          </div>
         </div>
 
         <div className={styles.card}>
-          <h3 className={styles.cardTitle}>Automated Pipeline Health</h3>
+          <h3 className={styles.cardTitle}>Infrastructure Integrity</h3>
           {[
-            { label: 'Weather Oracle Sync', sub: 'OpenWeather & IMD Verified', status: 'ACTIVE' },
-            { label: 'Settlement Engine', sub: 'UPI Auto-Disbursement Ready', status: 'ONLINE' },
-            { label: 'BCS Fraud Scoring', sub: 'ML Anomaly Detection Active', status: 'SAFE' },
-            { label: 'NLP Social Feeds', sub: 'X/Twitter Sentiment Analysis', status: 'LIVE' }
+            { label: 'Database Integrity', sub: 'PostgreSQL Vector Cluster', status: 'STABLE' },
+            { label: 'Parametric Oracles', sub: 'Open-Meteo & IMD Nodes', status: 'ACTIVE' },
+            { label: 'Settlement Engine', sub: 'Razorpay Smart Payouts', status: 'ONLINE' },
+            { label: 'ML Anomaly Detection', sub: 'BCS Fraud Score 0.98', status: 'SAFE' }
           ].map((item, idx) => (
             <div className={styles.queueRow} key={idx}>
               <div>
@@ -187,30 +190,19 @@ export default function AdminDashboard() {
               <div className={styles.cGreen} style={{ fontWeight: 800, fontSize: 11 }}>{item.status}</div>
             </div>
           ))}
-          
-          <div style={{ height: 1, background: 'var(--border)', margin: '15px 0' }} />
-          
-          <div className={styles.metaRow}>
-            <span className={styles.cMuted}>Avg settlement time</span>
-            <span className={`${styles.bold} ${styles.cGreen}`}>2.4s</span>
-          </div>
-          <div className={styles.metaRow}>
-            <span className={styles.cMuted}>AI Zero-Touch Rate</span>
-            <span className={`${styles.bold} ${styles.cGreen}`}>98.2%</span>
-          </div>
         </div>
       </div>
 
       <section style={{ marginTop: '10px' }}>
         <div className={styles.card}>
-          <h3 className={styles.cardTitle}>ML Predictive Forecast (Prophet Model)</h3>
+          <h3 className={styles.cardTitle}>AI Predictive Risk Forecast</h3>
           <div className={styles.g4}>
             {FORECAST.map(f => (
               <div className={styles.predCard} key={f.day} style={{ borderBottom: `3px solid ${f.col}` }}>
                 <div className={styles.predDay}>{f.day}</div>
-                <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 8 }}>🌧️ {f.rain} Rain</div>
-                <span className={f.risk === 'Extreme' || f.risk === 'High' ? styles.badge : styles.predBadge} 
-                      style={{ background: `${f.col}18`, color: f.col, border: `1px solid ${f.col}44` }}>
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 8 }}>Precipitation: {f.rain}</div>
+                <span className={styles.badge} 
+                      style={{ background: `${f.col}18`, color: f.col, border: `1px solid ${f.col}44`, fontSize: '10px', padding: '2px 8px' }}>
                   {f.risk} Risk
                 </span>
               </div>

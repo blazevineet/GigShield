@@ -29,7 +29,6 @@ export default function Onboarding() {
   const upd = (k: string, v: any) => setForm(f => ({ ...f, [k]: v }));
   const tier = TIERS.find(t => t.id === form.tier)!;
 
-  // --- PHASE 2: FRAUD DETECTION SIGNALS ---
   const getDeviceSignals = () => ({
     userAgent: navigator.userAgent,
     platform: navigator.platform,
@@ -59,38 +58,56 @@ export default function Onboarding() {
     } finally { setBusy(false); }
   };
 
+  /**
+   * UPDATED: Robust Activation Logic
+   * Ensures profile is synced before policy is created.
+   */
   const activate = async () => {
     setBusy(true);
     try {
       const fraudSignals = getDeviceSignals();
 
-      // 1. Create/Update Worker Profile & User Info (Name/UPI)
-      // This hits the 'upsert' logic we built in the backend
+      // 1. Sync Profile First
+      // We pass the name and UPI here so the User record is updated too
       await workerApi.updateProfile({
         name: form.name, 
         upiId: form.upi,
         platform: form.platform, 
         zone: form.zone,
-        city: "Chennai", // Defaulting to Chennai for the demo
+        city: "Chennai", 
         avgDailyHours: form.hours, 
         tenureMonths: form.tenure, 
       });
 
-      // 2. Create Policy with ML-Adjusted Premium & Fraud Signals
+      // 2. Create Policy
+      // We ensure premium is a clean number
       await policyApi.create({
         tier: form.tier, 
         zone: form.zone, 
         platform: form.platform,
-        premium: mlData.final_premium,
+        premium: Number(mlData.final_premium), // Ensure it's a number
+        upiId: form.upi,
         device_metadata: fraudSignals
-      } as any);
+      });
 
-      // Update local store and move to dashboard
-      setUser({ ...user!, name: form.name, hasProfile: true });
-      toast.success('Shield Activated! 🛡️');
-      navigate('/');
+      // 3. Update Local Auth State
+      // This triggers the ProtectedRoute to move you to the Dashboard
+      setUser({ 
+        ...user!, 
+        name: form.name, 
+        hasProfile: true,
+        role: 'WORKER' // Explicitly set to ensure no admin leakage
+      });
+
+      toast.success('Shield Activated! 🛡️', { icon: '🚀' });
+      
+      // Delay slightly for toast visibility then navigate
+      setTimeout(() => navigate('/'), 500);
+      
     } catch (err: any) {
-      toast.error(err.response?.data?.message || 'Activation failed');
+      console.error("Activation Error:", err);
+      const msg = err.response?.data?.message || 'Activation failed. Please check your details.';
+      toast.error(msg);
     } finally { setBusy(false); }
   };
 
@@ -99,7 +116,6 @@ export default function Onboarding() {
       <h1 className={styles.pageTitle}>Create Your Account</h1>
       <p className={styles.pageSub}>Income protection for delivery workers — 3 simple steps</p>
 
-      {/* Steps Bar Code remains the same... */}
       <div className={styles.stepsBar}>
         {STEPS.map((s, i) => (
           <React.Fragment key={s}>
@@ -125,7 +141,7 @@ export default function Onboarding() {
               <input className={styles.fi} disabled value={form.phone} />
             </div>
             <div className={styles.fg}><label className={styles.fl}>Aadhaar (last 4)</label>
-              <input className={styles.fi} placeholder="XXXX" maxLength={4} value={form.aadhaar} onChange={e => upd('aadhaar', e.target.value)} />
+              <input className={styles.fi} placeholder="XXXX" maxLength={4} value={form.aadhaar} onChange={e => upd('aadhaar', e.target.value.replace(/\D/g,''))} />
             </div>
           </div>
           <div className={styles.g2}>
@@ -160,8 +176,6 @@ export default function Onboarding() {
         </div>
       )}
 
-      {/* Step 2 (Tier Selection) and Step 3 (Confirmation) remain the same... */}
-      {/* Ensure Step 3 calls the 'activate' function */}
       {step === 2 && (
          <div className="anim-in">
           <p className={styles.secLabel}>Select Your Weekly Plan</p>

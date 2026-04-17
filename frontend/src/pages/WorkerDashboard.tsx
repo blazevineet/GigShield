@@ -3,8 +3,8 @@ import { usePolicies, useClaims, useCreateClaim } from '../hooks/useApi';
 import { useAuthStore } from '../store/authStore';
 import { useQueryClient } from '@tanstack/react-query'; 
 import styles from './pages.module.css';
-import { Claim } from '../api/services';
 
+// Fix for Index Signature error
 const TRIGGER_DEFS = [
   { id: 1, name: 'Heavy Rainfall',     icon: '🌧️', threshold: 35,  warnAt: 25,  fmt: (v: number) => `${v.toFixed(1)} mm/hr` },
   { id: 2, name: 'Extreme Heat',        icon: '🌡️', threshold: 42,  warnAt: 38,  fmt: (v: number) => `${v.toFixed(1)}°C` },
@@ -23,20 +23,25 @@ export default function WorkerDashboard() {
   
   const [rain, setRain] = useState(18.4);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [localSimClaims, setLocalSimClaims] = useState<any[]>([]);
   const hasTriggered = useRef(false); 
 
-  // --- TAB ISOLATION: Portal Switcher ---
-  const handleSwitchToAdmin = () => {
-    // 1. Reference _clearSession in a dead-code block to satisfy TS
-    if (_clearSession && false) _clearSession();
+  const storageKey = `GS_SIM_CLAIMS_${user?.id || 'guest'}`;
 
-    // 2. Open login in a new tab. 
-    // Because authStore is on sessionStorage, this tab remains unaffected.
-    const url = `/login?forceLogout=true&t=${Date.now()}`;
-    window.open(url, '_blank');
-  };
+  useEffect(() => {
+    const sync = () => {
+      const data = JSON.parse(localStorage.getItem(storageKey) || '[]');
+      setLocalSimClaims(data);
+    };
+    sync();
+    window.addEventListener('storage', sync);
+    window.addEventListener('local-claims-updated', sync);
+    return () => {
+      window.removeEventListener('storage', sync);
+      window.removeEventListener('local-claims-updated', sync);
+    };
+  }, [storageKey]);
 
-  // 1. Weather Simulation Loop
   useEffect(() => {
     const t = setInterval(() => {
       setRain(v => Math.max(0, v + (Math.random() - 0.38) * 3));
@@ -47,12 +52,22 @@ export default function WorkerDashboard() {
   const activePolicy = policiesData?.data?.[0];
   const firing = rain >= 35;
 
-  // 2. Refined Trigger Logic
   useEffect(() => {
     if (firing && activePolicy && !hasTriggered.current && !isProcessing) {
       hasTriggered.current = true; 
       setIsProcessing(true); 
       
+      const newSimClaim = {
+        id: `DEMO-${Math.random().toString(36).substr(2, 5).toUpperCase()}`,
+        policyId: activePolicy.id,
+        triggerType: 'HEAVY_RAINFALL',
+        triggerValue: parseFloat(rain.toFixed(2)),
+        payoutAmount: 500,
+        status: 'PAID',
+        firedAt: new Date().toISOString(),
+        isSimulated: true
+      };
+
       autoPayout({
         policyId: activePolicy.id,
         triggerType: 'RAIN',
@@ -61,36 +76,42 @@ export default function WorkerDashboard() {
         mlMetadata: { is_anomaly: false, confidence: 0.98, severity: 1.2 } 
       }, {
         onSuccess: () => {
+          const existing = JSON.parse(localStorage.getItem(storageKey) || '[]');
+          localStorage.setItem(storageKey, JSON.stringify([newSimClaim, ...existing]));
+          window.dispatchEvent(new Event('storage'));
+          window.dispatchEvent(new Event('local-claims-updated'));
           queryClient.invalidateQueries();
           setIsProcessing(false);
         },
         onError: (err: any) => {
-          if (err?.response?.status !== 422) {
-            hasTriggered.current = false; 
-          }
+          if (err?.response?.status !== 422) hasTriggered.current = false; 
           setIsProcessing(false);
         }
       });
     }
 
     if (!firing && rain < 25) {
-      if (hasTriggered.current) {
-        hasTriggered.current = false; 
-      }
+      if (hasTriggered.current) hasTriggered.current = false; 
     }
-  }, [firing, rain, activePolicy?.id, autoPayout, queryClient, isProcessing]); 
+  }, [firing, rain, activePolicy, autoPayout, queryClient, isProcessing, storageKey]); 
 
-  // 3. UI Calculations
-  const totalPaid = claimsData?.data?.reduce((acc: number, c: Claim) => 
-    acc + (['PAID', 'AUTO_APPROVED', 'SETTLED', 'PENDING'].includes(c.status) ? (Number(c.payoutAmount) || 0) : 0), 0) || 0;
+  const apiClaims = claimsData?.data || [];
+  const allUserClaims = [...localSimClaims, ...apiClaims];
+  
+  const totalPaid = apiClaims.reduce((acc: number, c: any) => 
+    acc + (['PAID', 'AUTO_APPROVED', 'SETTLED'].includes(c.status) ? (Number(c.payoutAmount) || 0) : 0), 0);
 
-  const latestClaim = claimsData?.data?.[0];
-  const confidenceValue = latestClaim?.mlMetadata?.confidence ?? latestClaim?.aiConfidence;
-  const currentTrustScore = confidenceValue 
-    ? `${(confidenceValue * 100).toFixed(0)}%` 
+  const currentTrustScore = allUserClaims[0]?.mlMetadata?.confidence 
+    ? `${(allUserClaims[0].mlMetadata.confidence * 100).toFixed(0)}%` 
     : '98%';
 
+  // FIX: Added Record type to allow number indexing
   const liveVals: Record<number, number> = { 1: rain, 2: 33.1, 3: 0, 4: 112, 5: 18 };
+
+  const handleSwitchToAdmin = () => {
+    const url = `/login?forceLogout=true&t=${Date.now()}`;
+    window.open(url, '_blank');
+  };
 
   return (
     <div className={`${styles.page} anim-in`}>
@@ -105,22 +126,10 @@ export default function WorkerDashboard() {
         </div>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-           <button 
+            <button 
               onClick={handleSwitchToAdmin}
               className="hover:scale-105 active:scale-95 transition-transform"
-              style={{
-                padding: '10px 18px',
-                background: '#ffab00',
-                color: '#000',
-                border: 'none',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                fontSize: '11px',
-                fontWeight: '800',
-                textTransform: 'uppercase',
-                letterSpacing: '0.5px',
-                boxShadow: '0 4px 12px rgba(255, 171, 0, 0.2)',
-              }}
+              style={{ padding: '10px 18px', background: '#ffab00', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '11px', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.5px', boxShadow: '0 4px 12px rgba(255, 171, 0, 0.2)' }}
             >
               🏛️ Open Insurer Portal
             </button>
@@ -138,9 +147,7 @@ export default function WorkerDashboard() {
         <div className={`${styles.alertBanner} ${styles.alertRed} pulsing-border`}>
           <span style={{ fontSize: 24 }}>🛡️</span>
           <div>
-            <div className={styles.alertTitle}>
-              {isProcessing ? "AI Analyzing Trigger..." : "AI Verified Protection!"}
-            </div>
+            <div className={styles.alertTitle}>{isProcessing ? "AI Analyzing Trigger..." : "AI Verified Protection!"}</div>
             <div className={styles.alertBody}>
               Rain in <b>{activePolicy.zone}</b> hit {rain.toFixed(1)}mm/hr. AI Confidence: <b>{currentTrustScore}</b>. 
               {isProcessing ? " Verifying movements..." : ` Recovery sent to ${user?.upiId || 'UPI ID'}.`}
@@ -165,7 +172,7 @@ export default function WorkerDashboard() {
         <div className={styles.stat}>
           <div className={styles.statLabel}>Total Recovered</div>
           <div className={`${styles.statValue} ${totalPaid > 0 ? styles.cGreen : ''}`}>₹{totalPaid.toLocaleString()}</div>
-          <div className={styles.statSub}>Direct to UPI</div>
+          <div className={styles.statSub}>Direct to UPI (Genuine)</div>
         </div>
 
         <div className={styles.stat}>
@@ -178,7 +185,6 @@ export default function WorkerDashboard() {
       <div className={styles.g2}>
         <div className={styles.card}>
           <h3 className={styles.cardTitle}>Real-time Parametric Monitor</h3>
-          <p className="text-[11px] text-slate-500 mb-4 uppercase">Watching weather in {activePolicy?.zone || 'assigned zone'}</p>
           {TRIGGER_DEFS.map(def => {
             const v = liveVals[def.id] ?? 0;
             const active = v >= def.threshold;
@@ -192,11 +198,7 @@ export default function WorkerDashboard() {
                     <div className={styles.trigVal}>{def.fmt(v)}</div>
                   </div>
                 </div>
-                {active
-                  ? <span className={`${styles.badge} ${styles.bRed} pulsing`}>● BREACHED</span>
-                  : warn
-                  ? <span className={`${styles.badge} ${styles.bAmber}`}>⚠ WARNING</span>
-                  : <span className={`${styles.badge} ${styles.bGreen}`}>✓ SAFE</span>}
+                {active ? <span className={`${styles.badge} ${styles.bRed} pulsing`}>● BREACHED</span> : warn ? <span className={`${styles.badge} ${styles.bAmber}`}>⚠ WARNING</span> : <span className={`${styles.badge} ${styles.bGreen}`}>✓ SAFE</span>}
               </div>
             );
           })}
@@ -204,17 +206,28 @@ export default function WorkerDashboard() {
 
         <div className={styles.card}>
           <h3 className={styles.cardTitle}>Shield Payout History</h3>
-          {(claimsData?.data?.length ?? 0) > 0 ? (
+          {allUserClaims.length > 0 ? (
             <div className={styles.timeline}>
-              {claimsData?.data?.slice(0, 5).map((c: Claim) => {
+              {allUserClaims.sort((a,b) => {
+                // FIX: Cast to any to avoid "arithmetic on type any" error
+                const timeA = new Date(a.firedAt || a.createdAt).getTime();
+                const timeB = new Date(b.firedAt || b.createdAt).getTime();
+                return timeB - timeA;
+              })
+                .slice(0, 5).map((c: any) => {
                   const isPaid = ['PAID', 'AUTO_APPROVED', 'SETTLED'].includes(c.status);
                   const dateObj = new Date(c.firedAt || c.createdAt);
+                  const displayTime = isNaN(dateObj.getTime()) 
+                    ? "—" 
+                    : dateObj.toLocaleString('en-IN', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit', hour12: true });
+
                   return (
                     <div className={styles.tlItem} key={c.id}>
                       <div className={styles.tlDot} style={{ background: isPaid ? 'var(--green)' : 'var(--amber)' }} />
                       <div className="flex-1">
                         <div className={styles.tlTime}>
-                          {dateObj.toLocaleDateString()} at {dateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {c.triggerType}
+                          {displayTime} · {(c.triggerType || '').replace(/_/g, ' ')}
+                          {(c.id?.startsWith('DEMO-') || c.isSimulated) && <span className="ml-2 text-amber-500 font-bold text-[9px] tracking-widest">[DEMO]</span>}
                         </div>
                         <div className={styles.tlText}>
                           <b>₹{c.payoutAmount}</b> · 

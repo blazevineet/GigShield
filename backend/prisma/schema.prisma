@@ -62,6 +62,7 @@ model User {
   upiId         String?
   role          UserRole       @default(WORKER)
   isVerified    Boolean        @default(false)
+  hasProfile    Boolean        @default(false) // Triggered after worker activation
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
 
@@ -70,6 +71,7 @@ model User {
   refreshTokens RefreshToken[]
 
   @@index([phone])
+  @@index([role]) // Optimized for Admin role-checks
   @@map("users")
 }
 
@@ -113,7 +115,8 @@ model Policy {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  worker         WorkerProfile  @relation(fields: [workerId], references: [id])
+  // CHANGED: Added Cascade delete so clearing test data doesn't break relations
+  worker         WorkerProfile  @relation(fields: [workerId], references: [id], onDelete: Cascade)
   claims         Claim[]
 
   @@index([workerId])
@@ -134,37 +137,38 @@ model Claim {
   payoutAmount   Float
   status         ClaimStatus    @default(PENDING)
   autoTriggered  Boolean        @default(true)
-  notes          String?        // General purpose notes
-  adjusterNotes  String?        // FIXED: Added missing field from Controller error
+  notes          String?        
+  adjusterNotes  String?        
   firedAt        DateTime       @default(now())
   resolvedAt     DateTime?
   settledAt      DateTime?      
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
-  policy         Policy         @relation(fields: [policyId], references: [id])
+  policy         Policy         @relation(fields: [policyId], references: [id], onDelete: Cascade)
   payout         Payout?
 
   @@index([policyId])
   @@index([status])
+  @@index([triggerType]) // Important for Admin analytics
   @@map("claims")
 }
 
 model Payout {
-  id               String       @id @default(uuid())
-  claimId          String       @unique
-  amount           Float
-  upiId            String
-  razorpayPayoutId String?
-  status           PayoutStatus @default(QUEUED)
-  failureReason    String?
-  metadata         Json?        // For storing audit logs or AI trust scores
-  initiatedAt      DateTime     @default(now())
-  completedAt      DateTime?
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  id                String       @id @default(uuid())
+  claimId           String       @unique
+  amount            Float
+  upiId             String
+  razorpayPayoutId  String?
+  status            PayoutStatus @default(QUEUED)
+  failureReason     String?
+  metadata          Json?        
+  initiatedAt       DateTime     @default(now())
+  completedAt       DateTime?
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
-  claim            Claim        @relation(fields: [claimId], references: [id])
+  claim             Claim        @relation(fields: [claimId], references: [id], onDelete: Cascade)
 
   @@index([status])
   @@map("payouts")
@@ -175,7 +179,7 @@ model GpsPing {
   workerId    String
   lat         Float
   lon         Float
-  accuracy    Float?   // FIXED: Added missing field from Worker route error
+  accuracy    Float?   
   speed       Float?
   recordedAt  DateTime @default(now())
 
@@ -193,7 +197,7 @@ model TriggerEvent {
   threshold    Float
   source       String      // Open-Meteo, IMD, etc.
   claimsRaised Int         @default(0)
-  rawPayload   Json?       // FIXED: Added missing field from TriggerWorker error
+  rawPayload   Json?       
   recordedAt   DateTime    @default(now())
 
   @@index([triggerType, recordedAt])

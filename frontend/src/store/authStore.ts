@@ -7,7 +7,8 @@ export interface User {
   phone:       string;
   role:        'WORKER' | 'ADMIN' | 'INSURER';
   hasProfile:  boolean;
-  upiId?:      string; 
+  upiId?:      string;
+  zone?:       string; // Added for zone-based logic support
 }
 
 export interface AuthState {
@@ -18,6 +19,8 @@ export interface AuthState {
 
   setTokens:    (access: string, refresh: string) => void;
   setUser:      (user: User) => void;
+  // NEW: Helper to update just the role/profile status without clearing tokens
+  updateUser:   (data: Partial<User>) => void; 
   logout:       () => void;
   clearSession: () => void; 
 }
@@ -36,6 +39,12 @@ export const useAuthStore = create<AuthState>()(
       setUser: (user) =>
         set({ user }),
 
+      // This allows us to "Promote" a user to ADMIN in real-time
+      updateUser: (data) =>
+        set((state) => ({
+          user: state.user ? { ...state.user, ...data } : null,
+        })),
+
       logout: () => {
         // Clear storage manually for safety
         sessionStorage.removeItem('gigshield-auth');
@@ -48,12 +57,8 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: 'gigshield-auth',
-      // CRITICAL: Switched to sessionStorage for automatic tab isolation
+      // CRITICAL: Keeps Admin and Worker tabs completely separate
       storage: createJSONStorage(() => sessionStorage),
-      
-      // We removed the window.addEventListener('storage') because 
-      // sessionStorage does not trigger storage events between tabs.
-      // This is the cleanest way to prevent "Cross-Tab Suicide."
       
       partialize: (state) => ({
         accessToken:  state.accessToken,
