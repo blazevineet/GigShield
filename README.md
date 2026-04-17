@@ -390,12 +390,11 @@ Indemnity requires loss assessment — impossible to do in real time for a ₹40
 - Insurer analytics dashboard (loss ratios, risk heatmap, fraud queue)
 - NLP-based social disruption monitor
 - End-to-end demo simulation (fake rainstorm → auto claim → payout)
-- Final pitch deck (PDF)
+- Final pitch deck (https://drive.google.com/file/d/13jHeDluTmdZh7aFXyD4fvhiywEnlDDcm/view?usp=sharing)
 - 5-minute demo video
 
 ---
-##pitch deck
-link- https://drive.google.com/file/d/13jHeDluTmdZh7aFXyD4fvhiywEnlDDcm/view?usp=sharing
+
 
 ## 📌 Key Design Decisions
 
