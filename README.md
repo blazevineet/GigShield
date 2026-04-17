@@ -613,10 +613,11 @@ Binary systems either over-approve (exploitable) or over-reject (unfair to hones
 - Insurer analytics dashboard (loss ratios, risk heatmap, fraud queue)
 - NLP-based social disruption monitor
 - End-to-end demo simulation (fake rainstorm → auto claim → payout)
-- Final pitch deck (PDF)
+- Final pitch deck (https://drive.google.com/file/d/13jHeDluTmdZh7aFXyD4fvhiywEnlDDcm/view?usp=sharing)
 - 5-minute demo video
 
 ---
+
 
 ## 📌 Key Design Decisions
 
