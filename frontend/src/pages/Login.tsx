@@ -1,16 +1,9 @@
-/**
- * GigShield — Login Page
- * Handles OTP-based authentication for Workers and Admins.
- */
-
-import { useState } from 'react'; // Removed 'React' to fix TS6133
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { authApi } from '../api/services';
 import { useAuthStore } from '../store/authStore';
 import styles from './Login.module.css';
-
-// Import your User type to fix the Role error
 import { User } from '../store/authStore'; 
 
 type Step = 'phone' | 'otp';
@@ -20,19 +13,63 @@ export default function Login() {
   const [phone, setPhone] = useState('');
   const [otp, setOtp] = useState('');
   const [loading, setLoading] = useState(false);
-  const { setTokens, setUser } = useAuthStore();
+  
+  const { setTokens, setUser, clearSession, isLoggedIn } = useAuthStore();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  const handleSendOtp = async (e: React.FormEvent) => {
+  // --- TAB ISOLATION LOGIC ---
+  useEffect(() => {
+    const isForceLogout = searchParams.get('forceLogout') === 'true';
+
+    if (isForceLogout) {
+      // 1. Wipe the sessionStorage for THIS tab only.
+      // This ensures the new tab starts completely fresh.
+      sessionStorage.removeItem('gigshield-auth');
+      
+      // 2. Clear the internal Zustand state (memory)
+      clearSession();
+      
+      // 3. Clean up the URL
+      navigate('/login', { replace: true });
+      
+      toast.success('Session reset for new portal');
+    } else if (isLoggedIn) {
+      // Auto-redirect if already logged in and NOT forcing a logout
+      const user = useAuthStore.getState().user;
+      if (user?.role === 'ADMIN' || user?.role === 'INSURER') {
+        navigate('/admin');
+      } else {
+        navigate(user?.hasProfile ? '/' : '/onboarding');
+      }
+    }
+  }, [searchParams, clearSession, navigate, isLoggedIn]);
+
+const handleSendOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Validates Indian mobile format: +91 followed by 10 digits starting with 6-9
-    if (!phone.match(/^\+91[6-9]\d{9}$/)) {
-      toast.error('Enter a valid Indian mobile number (+91XXXXXXXXXX)');
+
+    // 1. Clean the input and handle auto-prefixing for Indian numbers
+    let formattedPhone = phone.trim().replace(/\s/g, '');
+    
+    // If user enters exactly 10 digits, auto-prepend +91
+    if (formattedPhone.length === 10 && /^\d+$/.test(formattedPhone)) {
+      formattedPhone = `+91${formattedPhone}`;
+    }
+
+    // 2. Validate against the required format
+    if (!formattedPhone.match(/^\+91[6-9]\d{9}$/)) {
+      toast.error('Enter a valid 10-digit mobile number');
       return;
     }
+
     setLoading(true);
     try {
-      await authApi.sendOtp({ phone });
+      // 3. Use the formatted phone for the API call
+      await authApi.sendOtp({ phone: formattedPhone });
+      
+      // Update the local state so the OTP verification step has the correct number
+      setPhone(formattedPhone);
+      
       toast.success('OTP sent to your mobile');
       setStep('otp');
     } catch (err: any) {
@@ -41,7 +78,6 @@ export default function Login() {
       setLoading(false);
     }
   };
-
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (otp.length !== 6) {
@@ -51,16 +87,28 @@ export default function Login() {
     setLoading(true);
     try {
       const res = await authApi.verifyOtp({ phone, otp });
-      const { accessToken, refreshToken, user } = res.data;
+      let { accessToken, refreshToken, user } = res.data;
 
-      // FIX: Cast 'user' as 'User' to resolve the 'role' string incompatibility
+      // --- ADMIN BYPASS LOGIC ---
+      // Hardcoded for demo purposes
+      if (phone === '+919876543210') {
+        user = { 
+          ...user, 
+          role: 'ADMIN', 
+          name: 'Admin (Demo)' 
+        };
+      }
+
       setTokens(accessToken, refreshToken);
       setUser(user as User); 
 
       toast.success(`Welcome back, ${user.name || 'Partner'}!`);
       
-      // Redirect based on profile status
-      navigate(user.hasProfile ? '/' : '/onboarding');
+      if (user.role === 'ADMIN' || user.role === 'INSURER') {
+        navigate('/admin');
+      } else {
+        navigate(user.hasProfile ? '/' : '/onboarding');
+      }
     } catch (err: any) {
       toast.error(err.response?.data?.message || err.message || 'Invalid OTP');
     } finally {
@@ -71,7 +119,6 @@ export default function Login() {
   return (
     <div className={styles.root}>
       <div className={styles.card}>
-        {/* Brand Header */}
         <div className={styles.brand}>
           <div className={styles.logo}>🛵</div>
           <h1 className={styles.title}>GigShield</h1>
@@ -87,7 +134,6 @@ export default function Login() {
                 type="tel"
                 placeholder="+91 98765 43210"
                 value={phone}
-                // Removes spaces automatically for the regex check
                 onChange={e => setPhone(e.target.value.replace(/\s/g, ''))}
                 autoComplete="tel"
                 autoFocus

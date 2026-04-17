@@ -9,7 +9,7 @@ import { prisma } from './config/db';
 
 // Internal Imports
 import { logger } from './config/logger';
-import { connectRedis, redis } from './config/redis'; // Export redisClient for shutdown
+import { connectRedis, redis } from './config/redis'; 
 import { startTriggerWorker } from './services/triggerWorker';
 import { authRouter } from './routes/auth';
 import { workerRouter } from './routes/workerRoutes';
@@ -23,10 +23,19 @@ const API_PREFIX = process.env.API_PREFIX || '/api/v1';
 
 // ─── Global Middleware ────────────────────────────────────
 app.use(helmet());
+
+/**
+ * REFINED CORS: 
+ * Explicitly allowing the frontend origins and headers.
+ * Credentials: true is vital for the tab isolation strategy.
+ */
 app.use(cors({
-  origin: (process.env.ALLOWED_ORIGINS || 'http://localhost:5173').split(','),
-  credentials: true
+  origin: (process.env.ALLOWED_ORIGINS || 'http://localhost:3000,http://localhost:5173').split(','),
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cookie']
 }));
+
 app.use(compression());
 app.use(express.json());
 app.use(cookieParser());
@@ -37,6 +46,7 @@ app.use(morgan('combined', {
 }));
 
 // ─── API Routes ──────────────────────────────────────────
+// Ensure your frontend service.ts URLs match these prefixes
 app.use(`${API_PREFIX}/auth`, authRouter);
 app.use(`${API_PREFIX}/workers`, workerRouter);
 app.use(`${API_PREFIX}/policies`, policyRouter);
@@ -67,7 +77,6 @@ async function bootstrap() {
     logger.info('✓ Redis Connected');
 
     // 3. Start Parametric Trigger Worker
-    // Logic: Polls weather APIs / ML services every X seconds
     try {
       startTriggerWorker();
       logger.info('✓ Trigger Worker (Parametric Engine) active');
@@ -94,6 +103,7 @@ const shutdown = async (signal: string) => {
   logger.info(`${signal} received — shutting down gracefully`);
   
   try {
+    // Close Prisma first
     await prisma.$disconnect();
     logger.info('✓ DB connection closed');
     
@@ -103,6 +113,9 @@ const shutdown = async (signal: string) => {
       logger.info('✓ Redis connection closed');
     }
     
+    // Optional: Add trigger worker cleanup if startTriggerWorker returns a handle
+    
+    logger.info('👋 Shutdown complete.');
     process.exit(0);
   } catch (err) {
     logger.error({ err }, 'Error during graceful shutdown');

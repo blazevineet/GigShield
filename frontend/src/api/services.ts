@@ -1,6 +1,6 @@
 /**
- * GigShield — API Service Layer (Phase 3 Intelligence Optimized)
- * Consolidated and typed for React Query Hooks.
+ * GigShield — API Service Layer
+ * Updated for Tab Isolation and Profile Syncing.
  */
 
 import { apiClient, mlClient } from './client';
@@ -20,6 +20,7 @@ export interface AuthResponse {
     role: string; 
     hasProfile: boolean; 
     upiId?: string; 
+    zone?: string; // Added for zone-based logic
   };
 }
 
@@ -42,66 +43,59 @@ export interface Claim {
   threshold: number;
   payoutAmount: number;
   status: 'PENDING' | 'AUTO_APPROVED' | 'SOFT_HOLD' | 'HARD_HOLD' | 'PAID' | 'REJECTED' | 'SETTLED' | 'MANUAL_REVIEW';
+  // Standardized both naming conventions to prevent UI "undefined" bugs
   aiConfidence?: number;
   isAnomaly?: boolean;
   severity?: number;
-  alerts?: string[];
-  // ─── CRITICAL UPDATE FOR PHASE 3 ───
-  // This allows the frontend to read the ML analysis returned by the backend
   mlMetadata?: { 
     is_anomaly: boolean; 
     confidence: number; 
     severity: number 
   }; 
-  // ───────────────────────────────────
   firedAt: string;
   createdAt: string;
-  settledAt?: string;
-  resolvedAt?: string;
-  adjusterNotes?: string;
 }
 
 // ─── Auth ──────────────────────────────────────────────────
 export const authApi = {
   sendOtp:      (data: SendOtpPayload)   => apiClient.post('/auth/otp/send',   data),
   verifyOtp:    (data: VerifyOtpPayload) => apiClient.post<AuthResponse>('/auth/otp/verify', data),
-  refreshToken: (token: string)          => apiClient.post('/auth/refresh', { refreshToken: token }),
+  refreshToken: (token: string)           => apiClient.post('/auth/refresh', { refreshToken: token }),
   logout:        ()                       => apiClient.post('/auth/logout'),
-  getMe:         ()                       => apiClient.get('/auth/me'),
+  getMe:         ()                       => apiClient.get<{ data: AuthResponse['user'] }>('/auth/me'),
 };
 
 // ─── Workers ───────────────────────────────────────────────
 export const workerApi = {
-  createProfile: (data: any)   => apiClient.post('/workers/profile',     data),
-  getProfile:    ()            => apiClient.get('/workers/profile'),
-  updateProfile: (data: any)   => apiClient.patch('/workers/profile',    data),
-  logGpsPing:    (data: { lat: number; lon: number; accuracy?: number; speed?: number }) => 
+  // Returns updated user info so we can update the Store
+  createProfile: (data: any) => apiClient.post('/workers/profile', data), 
+  updateProfile: (data: any) => apiClient.post('/workers/profile', data), 
+  
+  getProfile:    ()          => apiClient.get('/workers/profile'),
+  pingGps:       (data: { lat: number; lon: number; accuracy?: number; speed?: number }) => 
     apiClient.post('/workers/gps', data),
 };
 
 // ─── Policies ──────────────────────────────────────────────
 export const policyApi = {
   create:    (data: any)      => apiClient.post('/policies',       data),
-  list:      (params?: any)   => apiClient.get('/policies',         { params }),
+  list:      (params?: any)   => apiClient.get<{ data: any[] }>('/policies', { params }),
   getById:   (id: string)     => apiClient.get(`/policies/${id}`),
-  renew:     (id: string)     => apiClient.post(`/policies/${id}/renew`),
-  cancel:    (id: string)     => apiClient.delete(`/policies/${id}`),
 };
 
 // ─── Claims ────────────────────────────────────────────────
 export const claimApi = {
-  list:      (params?: any)  => apiClient.get('/claims',           { params }),
+  list:      (params?: any)  => apiClient.get<{ data: Claim[] }>('/claims', { params }),
   getById:   (id: string)    => apiClient.get(`/claims/${id}`),
   create:    (data: { 
     policyId: string; 
     triggerType: string; 
     triggerValue: number; 
     threshold: number;
-    // Explicitly typing the metadata payload for the POST request
     mlMetadata?: { is_anomaly: boolean; confidence: number; severity: number };
   }) => apiClient.post('/claims', data), 
   review:    (id: string, data: { decision: 'APPROVED' | 'REJECTED'; adjusterNotes?: string }) =>
-                                 apiClient.patch(`/claims/${id}/review`, data),
+    apiClient.patch(`/claims/${id}/review`, data),
 };
 
 // ─── Triggers ──────────────────────────────────────────────
@@ -115,7 +109,6 @@ export const adminApi = {
   getStats:        ()            => apiClient.get('/admin/stats'),
   getZoneHeatmap:  ()            => apiClient.get('/admin/heatmap'),
   getForecast:     ()            => apiClient.get('/admin/forecast'),
-  getLossRatio:    (params?: any)=> apiClient.get('/admin/loss-ratio', { params }),
 };
 
 // ─── ML Service ────────────────────────────────────────────

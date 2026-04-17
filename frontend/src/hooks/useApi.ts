@@ -1,29 +1,71 @@
 /**
- * GigShield — Custom React Query Hooks (Phase 3 Optimized)
+ * GigShield — Custom React Query Hooks (Final Demo Optimized)
  */
 import { useQuery, useMutation, useQueryClient, UseQueryOptions } from '@tanstack/react-query';
 import toast from 'react-hot-toast';
-import { policyApi, claimApi, adminApi, mlApi, Claim } from '../api/services';
+import { policyApi, claimApi, adminApi, mlApi, workerApi, Claim } from '../api/services';
+import { useAuthStore } from '../store/authStore'; // Added to sync local state
 
 export const QUERY_KEYS = {
-  policies:    ['policies']           as const,
-  policy:      (id: string)    => ['policies', id] as const,
-  claims:      ['claims']           as const,
-  claim:       (id: string)    => ['claims', id] as const,
-  adminStats:  ['admin', 'stats'] as const,
-  heatmap:     ['admin', 'heatmap'] as const,
-  forecast:    ['admin', 'forecast'] as const,
+  userProfile: ['user', 'profile'] as const,
+  policies:     ['policies']           as const,
+  policy:       (id: string)    => ['policies', id] as const,
+  claims:       ['claims']           as const,
+  claim:        (id: string)    => ['claims', id] as const,
+  adminStats:   ['admin', 'stats'] as const,
+  heatmap:      ['admin', 'heatmap'] as const,
+  forecast:     ['admin', 'forecast'] as const,
 };
 
+// --- User & Worker Profile ---
+
+export function useUserProfile(options?: Partial<UseQueryOptions<any>>) {
+  return useQuery({
+    queryKey: QUERY_KEYS.userProfile,
+    queryFn: () => workerApi.getProfile().then((r: any) => r.data),
+    staleTime: 60_000,
+    ...options,
+  });
+}
+
+/**
+ * UPDATED: Added useUpdateProfile
+ * This ensures that when onboarding is complete, the app instantly 
+ * redirects the user to the Dashboard by updating the AuthStore.
+ */
+export function useUpdateProfile() {
+  const qc = useQueryClient();
+  const setUser = useAuthStore(state => state.setUser);
+
+  return useMutation({
+    mutationFn: (data: any) => workerApi.updateProfile(data).then((r: any) => r.data),
+    onSuccess: (data) => {
+      // 1. Refresh React Query cache
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.userProfile });
+      
+      // 2. CRITICAL: Sync the global auth state
+      // Assuming your backend returns { user: { ... } } or just the user object
+      const updatedUser = data.user || data;
+      if (updatedUser) {
+        setUser(updatedUser);
+      }
+
+      toast.success('Profile verified by AI!');
+    },
+    onError: (err: any) => {
+      toast.error(err?.response?.data?.message || 'Verification failed');
+    }
+  });
+}
+
 // --- Policies ---
-// UPDATED: Added 'options' argument to support refetchInterval and other configs
+
 export function usePolicies(params?: any, options?: Partial<UseQueryOptions<any>>) {
   return useQuery({
     queryKey: [...QUERY_KEYS.policies, params],
     queryFn: () => policyApi.list(params).then((r: any) => r.data),
-    staleTime: 30_000,
-    retry: 2,
-    ...options, // Spreads options like refetchInterval: 3000
+    staleTime: 5_000, 
+    ...options,
   });
 }
 
@@ -33,7 +75,8 @@ export function useCreatePolicy() {
     mutationFn: (data: any) => policyApi.create(data).then((r: any) => r.data),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QUERY_KEYS.policies });
-      toast.success('Policy activated successfully!');
+      qc.invalidateQueries({ queryKey: QUERY_KEYS.userProfile });
+      toast.success('Policy activated successfully!', { icon: '🛡️' });
     },
     onError: (err: any) => {
       toast.error(err?.response?.data?.message || err.message || 'Failed to create policy');
@@ -42,22 +85,17 @@ export function useCreatePolicy() {
 }
 
 // --- Claims ---
-// UPDATED: Added 'options' argument to support refetchInterval
+
 export function useClaims(params?: any, options?: Partial<UseQueryOptions<{ data: Claim[], meta?: any }>>) {
   return useQuery<{ data: Claim[], meta?: any }>({
     queryKey: [...QUERY_KEYS.claims, params],
     queryFn: () => claimApi.list(params).then((r: any) => r.data),
-    staleTime: 10_000,
-    // Provide a default but allow 'options' to override it
-    refetchInterval: 15_000, 
+    staleTime: 2_000, 
+    refetchInterval: 3000, 
     ...options, 
   });
 }
 
-/**
- * PHASE 3: Automated Claim Creation
- * Levelled Up to support ML simulation data
- */
 export function useCreateClaim() {
   const qc = useQueryClient();
   return useMutation({
@@ -69,59 +107,45 @@ export function useCreateClaim() {
       mlMetadata?: any 
     }) => claimApi.create(data).then((r: any) => r.data),
     onSuccess: () => {
-      // Aggressive cache clearing to update Total Recovered immediately
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.claims });
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.adminStats });
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.policies });
-
+      qc.invalidateQueries(); 
       toast.success('Instant Payout Processed!', { 
         icon: '💸',
         duration: 4000,
-        style: {
-          background: '#10b981',
-          color: '#fff',
-          fontWeight: 'bold'
-        }
+        style: { background: '#10b981', color: '#fff', fontWeight: 'bold' }
       });
     },
     onError: (err: any) => {
-      console.error('Auto-claim trigger failed:', err);
+      if (err?.response?.status !== 422) {
+        console.error('Auto-claim trigger failed:', err);
+      }
     }
   });
 }
 
-export function useReviewClaim() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: ({ id, decision, notes }: { id: string; decision: 'APPROVED' | 'REJECTED'; notes?: string }) =>
-      claimApi.review(id, { decision, adjusterNotes: notes }).then((r: any) => r.data),
-    onSuccess: (_, vars) => {
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.claims });
-      qc.invalidateQueries({ queryKey: QUERY_KEYS.adminStats });
-      toast.success(`Claim ${vars.decision.toLowerCase()}`);
-    },
-  });
-}
-
 // --- Admin ---
+
 export function useAdminStats(options?: Partial<UseQueryOptions<any>>) {
   return useQuery({
     queryKey: QUERY_KEYS.adminStats,
     queryFn: () => adminApi.getStats().then((r: any) => r.data),
-    staleTime: 10_000,
+    staleTime: 2_000,
+    refetchInterval: 3000, 
     ...options,
   });
 }
 
-export function useZoneHeatmap() {
+export function useZoneHeatmap(options?: Partial<UseQueryOptions<any>>) {
   return useQuery({
     queryKey: QUERY_KEYS.heatmap,
     queryFn: () => adminApi.getZoneHeatmap().then((r: any) => r.data),
-    staleTime: 60_000,
+    staleTime: 5_000,
+    refetchInterval: 5000, 
+    ...options,
   });
 }
 
-// --- ML Premium ---
+// --- ML Premium Prediction ---
+
 export function usePremiumPrediction(
   params: { zone: string; tier: string; avg_hours: number; tenure_months: number; is_monsoon: boolean },
   enabled: boolean,

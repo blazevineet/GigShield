@@ -1,8 +1,3 @@
-/**
- * GigShield Frontend — API Client
- * Axios instance with improved token refresh and Phase 3 resilience.
- */
-
 import axios, {
   AxiosInstance,
   AxiosError,
@@ -23,6 +18,7 @@ export const apiClient: AxiosInstance = axios.create({
 // ─── Request interceptor: attach access token ──────────────
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    // Correctly pulls from tab-specific sessionStorage via Zustand
     const token = useAuthStore.getState().accessToken;
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -48,7 +44,8 @@ apiClient.interceptors.response.use(
   async (error: AxiosError) => {
     const original = error.config as InternalAxiosRequestConfig & { _retry?: boolean };
 
-    if (error.response?.status !== 401 || original._retry) {
+    // 1. If it's not a 401, or it's a 401 on the refresh attempt itself, BAIL OUT
+    if (error.response?.status !== 401 || original._retry || original.url?.includes('/auth/refresh')) {
       return Promise.reject(formatError(error));
     }
 
@@ -58,7 +55,7 @@ apiClient.interceptors.response.use(
       })
         .then((token) => {
           original.headers.Authorization = `Bearer ${token}`;
-          return apiClient(original);
+          return apiClient.request(original); // Use .request for safety
         })
         .catch((err) => Promise.reject(err));
     }
@@ -74,20 +71,26 @@ apiClient.interceptors.response.use(
         return Promise.reject(new Error('Session expired.'));
       }
 
+      // 2. Perform the refresh call using a clean axios instance to avoid interceptor loops
       const res = await axios.post(`${BASE_URL}/auth/refresh`, { refreshToken });
+      
+      // Handle various payload structures
       const payload = res.data.data || res.data; 
-      const { accessToken: newAccess, refreshToken: newRefresh } = payload;
+      const newAccess = payload.accessToken || payload.access_token;
+      const newRefresh = payload.refreshToken || payload.refresh_token;
 
       if (!newAccess) throw new Error('Refresh failed');
 
+      // 3. Update the specific tab's session
       setTokens(newAccess, newRefresh || refreshToken);
       processQueue(null, newAccess);
 
       original.headers.Authorization = `Bearer ${newAccess}`;
-      return apiClient(original);
+      return apiClient.request(original);
 
     } catch (refreshErr) {
       processQueue(refreshErr, null);
+      // If refresh fails, this tab specifically is logged out
       useAuthStore.getState().logout();
       return Promise.reject(formatError(refreshErr as AxiosError));
     } finally {
@@ -97,7 +100,7 @@ apiClient.interceptors.response.use(
 );
 
 // ─── Error formatter ───────────────────────────────────────
-function formatError(error: AxiosError): Error {
+function formatError(error: any): Error {
   const data = error.response?.data as any;
   const msg  = data?.error || data?.message || error.message || 'An unexpected error occurred';
   const err  = new Error(msg) as Error & { statusCode?: number; errors?: unknown[] };
@@ -107,16 +110,11 @@ function formatError(error: AxiosError): Error {
 }
 
 // ─── ML Service client ─────────────────────────────────────
-/**
- * Phase 3: ML Client is now more robust to handle timeouts 
- * from the heavy Python computation.
- */
 export const mlClient: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_ML_URL || 'http://localhost:8000',
-  timeout: 20_000, // Increased for complex risk scoring
+  timeout: 30_000, // Boosted to 30s for deadline safety (ML can be slow)
 });
 
-// ML Interceptor to catch Python FastAPI errors
 mlClient.interceptors.response.use(
   (res) => res,
   (error: AxiosError) => {

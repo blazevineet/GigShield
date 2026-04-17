@@ -10,6 +10,13 @@ const DEFS = [
   { id:6, name:'Curfew / Bandh',      icon:'🚫', threshold:1,   warnAt:0.5, src:'NLP Monitor',live:false, fmt:(v:number)=>v>=1?'⛔ Verified':'✅ Clear' },
 ];
 
+// Initial Data
+const INITIAL_NLP = [
+  { source: 'Twitter/X', text: "Section 144 rumored in T-Nagar area due to protests...", sentiment: 'Negative', risk: 'Medium' },
+  { source: 'News API', text: "Official: Curfew imposed in North Chennai districts from 9PM.", sentiment: 'Alert', risk: 'High' },
+  { source: 'Local Feed', text: "Traffic moving normally in Velachery; no disruption detected.", sentiment: 'Positive', risk: 'Low' },
+];
+
 type LogEntry = { ts: string; src: string; type: string; msg: string };
 
 export default function TriggerMonitor() {
@@ -17,6 +24,10 @@ export default function TriggerMonitor() {
   const [log,      setLog]      = useState<LogEntry[]>([]);
   const [fetching, setFetching] = useState(false);
   const [liveTemp, setLiveTemp] = useState<number|null>(null);
+  
+  // NEW: State for Dynamic NLP content
+  const [nlpAlerts, setNlpAlerts] = useState(INITIAL_NLP);
+  const [isScanning, setIsScanning] = useState(true);
 
   const addLog = useCallback((src:string, type:string, msg:string) => {
     const ts = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
@@ -44,17 +55,40 @@ export default function TriggerMonitor() {
     fetchLive();
     const t = setInterval(() => {
       setVals(v => ({...v, 4:Math.max(50,Math.min(450,v[4]+(Math.random()-.5)*20)), 5:Math.max(0,Math.min(85,v[5]+(Math.random()-.5)*6))}));
-      if (Math.random()<.12) addLog('CPCB-API','ok',`AQI update: ${Math.round(80+Math.random()*80)}`);
-      if (Math.random()<.10) addLog('Platform','ok',`Order volume: ${Math.round(70+Math.random()*30)}% of baseline`);
-      if (Math.random()<.05) addLog('NLP-Monitor','info','Scanned 1,240 posts · 0 curfew keywords');
+      // Visual flicker for "scanning"
+      setIsScanning(s => !s);
     }, 3200);
     return () => clearInterval(t);
-  }, [fetchLive, addLog]);
+  }, [fetchLive]);
 
   const simulate = (def: typeof DEFS[0]) => {
     const v = def.threshold*1.18;
     setVals(prev => ({...prev,[def.id]:v}));
     addLog('SIMULATE','fire',`🎬 ${def.name} → ${def.fmt(v)} [BREACHED]`);
+
+    // NEW: Inject context-aware NLP discovery
+    if (def.id === 6) { // Curfew ID
+        const discovery = { 
+            source: 'POLICE DATA', 
+            text: `🚨 VERIFIED: Curfew order confirmed by local authorities. Payouts initiated.`, 
+            sentiment: 'Critical', 
+            risk: 'High' 
+        };
+        setNlpAlerts(prev => [discovery, ...prev.slice(0, 2)]);
+    }
+    
+    const newSimulatedClaim = {
+      id: `SIM-${Math.random().toString(36).substr(2, 9)}`,
+      triggerType: def.name.toUpperCase().replace(/ /g, '_'),
+      payoutAmount: 320,
+      bcsScore: 0.91,
+      firedAt: new Date().toISOString(),
+      status: 'PAID'
+    };
+
+    const existing = JSON.parse(localStorage.getItem('GS_SIM_CLAIMS') || '[]');
+    localStorage.setItem('GS_SIM_CLAIMS', JSON.stringify([newSimulatedClaim, ...existing]));
+
     setTimeout(()=>addLog('AUTO-CLAIM','ok','Pipeline initiated · BCS computing...'),800);
     setTimeout(()=>addLog('AUTO-CLAIM','ok','BCS = 0.91 · AUTO-APPROVED ✓'),1800);
     setTimeout(()=>addLog('UPI-PAYOUT','ok','₹320 dispatched · Razorpay → arjun@blink ✓'),2800);
@@ -64,13 +98,13 @@ export default function TriggerMonitor() {
   return (
     <div className={`${styles.page} anim-in`}>
       <h1 className={styles.pageTitle}>⚡ Parametric Trigger Monitor</h1>
-      <p className={styles.pageSub}>2 live weather APIs · 4 mock feeds · auto-claim on threshold breach</p>
+      <p className={styles.pageSub}>2 live weather APIs · Social Sentiment (NLP) · 3 mock feeds</p>
 
       <div className={styles.topBar}>
         <div className={styles.row}>
           <span className={`${styles.badge} ${styles.bGreen}`}>● Open-Meteo Live</span>
-          <span className={`${styles.badge} ${styles.bBlue}`}>4 Mock APIs</span>
-          {liveTemp && <span className={`${styles.badge} ${styles.bAmber}`}>📍 Chennai {liveTemp}°C</span>}
+          <span className={`${styles.badge} ${styles.bAmber}`}>● NLP Engine Active</span>
+          {liveTemp && <span className={`${styles.badge} ${styles.bBlue}`}>📍 Chennai {liveTemp}°C</span>}
         </div>
         <button className={`${styles.btn} ${styles.btnGhost}`} onClick={fetchLive} disabled={fetching}>
           {fetching ? <><span className="spinning">↻</span> Fetching...</> : '↻ Refresh Live Data'}
@@ -101,17 +135,40 @@ export default function TriggerMonitor() {
         })}
       </div>
 
-      <div className={styles.card}>
-        <h3 className={styles.cardTitle}>Live API Feed</h3>
-        <div className={styles.apiLog}>
-          {log.map((e,i)=>(
-            <div className={styles.apiRow} key={i}>
-              <span className={styles.apiTs}>{e.ts}</span>
-              <span className={`${styles.apiSrc} ${styles[`src_${e.type}` as keyof typeof styles]}`}>{e.src}</span>
-              <span className={styles.apiMsg}>{e.msg}</span>
+      <div className={styles.g2}>
+        <div className={styles.card}>
+          <h3 className={styles.cardTitle}>Live API & Pipeline Feed</h3>
+          <div className={styles.apiLog}>
+            {log.map((e,i)=>(
+              <div className={styles.apiRow} key={i}>
+                <span className={styles.apiTs}>{e.ts}</span>
+                <span className={`${styles.apiSrc} ${styles[`src_${e.type}` as keyof typeof styles]}`}>{e.src}</span>
+                <span className={styles.apiMsg}>{e.msg}</span>
+              </div>
+            ))}
+            {!log.length && <span className={styles.cMuted}>Waiting for API responses...</span>}
+          </div>
+        </div>
+
+        <div className={styles.card}>
+          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:15}}>
+            <h3 className={styles.cardTitle} style={{margin:0}}>🤖 NLP Social Disruption</h3>
+            <span className={isScanning ? "spinning" : ""} style={{fontSize:12, opacity: isScanning ? 1 : 0.3}}>📡</span>
+          </div>
+          <div className={styles.apiLog}>
+            {nlpAlerts.map((alert, i) => (
+              <div key={i} style={{padding:'8px 0', borderBottom:'1px solid var(--border)', animation: i === 0 ? 'slideUp 0.3s ease' : 'none'}}>
+                <div style={{display:'flex', justifyContent:'space-between', fontSize:10, marginBottom:4}}>
+                  <span className={styles.bold} style={{color:'var(--amber)'}}>{alert.source}</span>
+                  <span style={{color: alert.risk === 'High' ? 'var(--red)' : alert.risk === 'Medium' ? 'var(--amber)' : 'var(--green)'}}>{alert.sentiment} Analysis</span>
+                </div>
+                <div style={{fontSize:12, lineHeight:1.4}}>{alert.text}</div>
+              </div>
+            ))}
+            <div style={{marginTop:10, fontSize:10, color:'var(--text3)', textAlign:'center', fontStyle:'italic'}}>
+              {isScanning ? 'NLP Engine scanning 42 local sources...' : 'Deep-scan complete. Monitoring...'}
             </div>
-          ))}
-          {!log.length && <span className={styles.cMuted}>Waiting for API responses...</span>}
+          </div>
         </div>
       </div>
     </div>

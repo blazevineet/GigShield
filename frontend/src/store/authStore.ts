@@ -1,14 +1,13 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 
-// Phase 3: Added upiId to the User interface
 export interface User {
   id:          string;
   name:        string;
   phone:       string;
   role:        'WORKER' | 'ADMIN' | 'INSURER';
   hasProfile:  boolean;
-  upiId?:      string; // <--- ADDED THIS LINE
+  upiId?:      string; 
 }
 
 export interface AuthState {
@@ -17,9 +16,10 @@ export interface AuthState {
   user:         User | null;
   isLoggedIn:   boolean;
 
-  setTokens:  (access: string, refresh: string) => void;
-  setUser:    (user: User) => void;
-  logout:     () => void;
+  setTokens:    (access: string, refresh: string) => void;
+  setUser:      (user: User) => void;
+  logout:       () => void;
+  clearSession: () => void; 
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -36,16 +36,30 @@ export const useAuthStore = create<AuthState>()(
       setUser: (user) =>
         set({ user }),
 
-      logout: () =>
-        set({ accessToken: null, refreshToken: null, user: null, isLoggedIn: false }),
+      logout: () => {
+        // Clear storage manually for safety
+        sessionStorage.removeItem('gigshield-auth');
+        set({ accessToken: null, refreshToken: null, user: null, isLoggedIn: false });
+      },
+
+      clearSession: () => {
+        set({ accessToken: null, refreshToken: null, user: null, isLoggedIn: false });
+      }
     }),
     {
-      name:    'gigshield-auth',
-      storage: createJSONStorage(() => localStorage),
+      name: 'gigshield-auth',
+      // CRITICAL: Switched to sessionStorage for automatic tab isolation
+      storage: createJSONStorage(() => sessionStorage),
+      
+      // We removed the window.addEventListener('storage') because 
+      // sessionStorage does not trigger storage events between tabs.
+      // This is the cleanest way to prevent "Cross-Tab Suicide."
+      
       partialize: (state) => ({
+        accessToken:  state.accessToken,
         refreshToken: state.refreshToken,
-        user:          state.user,
-        isLoggedIn:    state.isLoggedIn,
+        user:         state.user,
+        isLoggedIn:   state.isLoggedIn,
       }),
     },
   ),

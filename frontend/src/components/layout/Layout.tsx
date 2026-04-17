@@ -1,10 +1,9 @@
-
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../../store/authStore';
 import styles from './Layout.module.css';
 
 const WORKER_NAV = [
-  { path: '/',          label: 'Dashboard',       icon: '🏠' },
+  { path: '/',         label: 'Dashboard',       icon: '🏠' },
   { path: '/onboarding',label: 'Onboarding',      icon: '📋' },
   { path: '/policies',  label: 'My Policy',        icon: '🛡️' },
   { path: '/claims',    label: 'Claims',           icon: '⚡' },
@@ -27,9 +26,21 @@ export default function Layout() {
   const nav               = isAdmin ? ADMIN_NAV : WORKER_NAV;
 
   const handleLogout = async () => {
-    try { await fetch('/api/v1/auth/logout', { method: 'POST' }); } catch {}
-    logout();
-    navigate('/login');
+    try { 
+      // 1. Optional Backend Logout
+      await fetch('/api/v1/auth/logout', { method: 'POST' }); 
+    } catch (err) {
+      console.warn("Backend logout failed, proceeding with local clear.");
+    } finally {
+      // 2. Clear this tab's specific session storage
+      sessionStorage.removeItem('gigshield-auth');
+      
+      // 3. Reset Zustand State
+      logout();
+      
+      // 4. Redirect to login
+      navigate('/login');
+    }
   };
 
   return (

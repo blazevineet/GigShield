@@ -4,7 +4,7 @@ import { AppError } from '../utils/AppError';
 import { logger } from '../config/logger';
 
 /**
- * GET /workers/profile
+ * GET /workers/me (or /profile)
  * Get the current worker's profile details
  */
 export async function getProfile(req: Request, res: Response, next: NextFunction) {
@@ -13,7 +13,11 @@ export async function getProfile(req: Request, res: Response, next: NextFunction
 
     const profile = await prisma.workerProfile.findUnique({
       where: { userId },
-      include: { user: { select: { name: true, phone: true, upiId: true } } }
+      include: { 
+        user: { 
+          select: { name: true, phone: true, upiId: true } 
+        } 
+      }
     });
 
     if (!profile) throw new AppError('Worker profile not found', 404);
@@ -26,14 +30,14 @@ export async function getProfile(req: Request, res: Response, next: NextFunction
 
 /**
  * POST /workers/profile
- * Create or update worker onboarding data (City, Zone, Platform)
+ * Create or update worker onboarding data
  */
 export async function updateProfile(req: Request, res: Response, next: NextFunction) {
   try {
     const userId = (req as any).user.id;
-    const { platform, zone, city, avgDailyHours, tenureMonths } = req.body;
+    const { platform, zone, city, avgDailyHours, tenureMonths, name, upiId } = req.body;
 
-    // Phase 3 Requirement: Validate that the zone exists in our Risk Seed data
+    // 1. Validate supported zones
     const validZone = await prisma.zoneRiskProfile.findFirst({
       where: { zone, city }
     });
@@ -42,22 +46,34 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
       throw new AppError(`We do not currently support parametric triggers in ${zone}, ${city}`, 400);
     }
 
+    // 2. Update User-specific info if provided (Name/UPI)
+    if (name || upiId) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: { 
+          ...(name && { name }), 
+          ...(upiId && { upiId }) 
+        }
+      });
+    }
+
+    // 3. Upsert the Worker Profile
     const profile = await prisma.workerProfile.upsert({
       where: { userId },
       update: {
         platform,
         zone,
         city,
-        avgDailyHours: avgDailyHours || 8,
-        tenureMonths: tenureMonths || 0
+        avgDailyHours: Number(avgDailyHours) || 8,
+        tenureMonths: Number(tenureMonths) || 0
       },
       create: {
         userId,
         platform,
         zone,
         city,
-        avgDailyHours: avgDailyHours || 8,
-        tenureMonths: tenureMonths || 0
+        avgDailyHours: Number(avgDailyHours) || 8,
+        tenureMonths: Number(tenureMonths) || 0
       }
     });
 
@@ -67,6 +83,40 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
       success: true,
       message: 'Profile updated successfully',
       data: profile
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+/**
+ * POST /workers/gps
+ * Record GPS pings to feed the Geographical Risk Heatmap
+ */
+export async function recordGps(req: Request, res: Response, next: NextFunction) {
+  try {
+    const userId = (req as any).user.id;
+    const { lat, lon, accuracy, speed } = req.body;
+
+    const profile = await prisma.workerProfile.findUnique({
+      where: { userId }
+    });
+
+    if (!profile) throw new AppError('Profile not found', 404);
+
+    const ping = await prisma.gpsPing.create({
+      data: {
+        workerId: profile.id,
+        lat: parseFloat(lat),
+        lon: parseFloat(lon),
+        accuracy: parseFloat(accuracy) || 0,
+        speed: parseFloat(speed) || 0
+      }
+    });
+
+    res.status(201).json({
+      success: true,
+      data: ping
     });
   } catch (err) {
     next(err);

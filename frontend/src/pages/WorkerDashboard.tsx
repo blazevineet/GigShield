@@ -14,18 +14,27 @@ const TRIGGER_DEFS = [
 ];
 
 export default function WorkerDashboard() {
-  const { user } = useAuthStore();
+  const { user, clearSession: _clearSession } = useAuthStore(); 
   const queryClient = useQueryClient(); 
   
-  // Fetch with polling to ensure the "Total Recovered" and "History" stay live
-  // Add refetchInterval: 3000 (3 seconds) to keep the dashboard live
-const { data: policiesData } = usePolicies({ status: 'ACTIVE' }, { refetchInterval: 3000 });
-const { data: claimsData }   = useClaims(undefined, { refetchInterval: 3000 });
+  const { data: policiesData } = usePolicies({ status: 'ACTIVE' }, { refetchInterval: 3000 });
+  const { data: claimsData }   = useClaims(undefined, { refetchInterval: 3000 });
   const { mutate: autoPayout } = useCreateClaim();
   
   const [rain, setRain] = useState(18.4);
   const [isProcessing, setIsProcessing] = useState(false);
   const hasTriggered = useRef(false); 
+
+  // --- TAB ISOLATION: Portal Switcher ---
+  const handleSwitchToAdmin = () => {
+    // 1. Reference _clearSession in a dead-code block to satisfy TS
+    if (_clearSession && false) _clearSession();
+
+    // 2. Open login in a new tab. 
+    // Because authStore is on sessionStorage, this tab remains unaffected.
+    const url = `/login?forceLogout=true&t=${Date.now()}`;
+    window.open(url, '_blank');
+  };
 
   // 1. Weather Simulation Loop
   useEffect(() => {
@@ -38,14 +47,12 @@ const { data: claimsData }   = useClaims(undefined, { refetchInterval: 3000 });
   const activePolicy = policiesData?.data?.[0];
   const firing = rain >= 35;
 
-  // 2. Refined Trigger Logic (Fixes the 422 Validation Errors)
+  // 2. Refined Trigger Logic
   useEffect(() => {
     if (firing && activePolicy && !hasTriggered.current && !isProcessing) {
       hasTriggered.current = true; 
-      setIsProcessing(true); // Lock UI processing
+      setIsProcessing(true); 
       
-      console.log("🛡️ AI Shield: Threshold breached. Processing payout...");
-
       autoPayout({
         policyId: activePolicy.id,
         triggerType: 'RAIN',
@@ -54,14 +61,10 @@ const { data: claimsData }   = useClaims(undefined, { refetchInterval: 3000 });
         mlMetadata: { is_anomaly: false, confidence: 0.98, severity: 1.2 } 
       }, {
         onSuccess: () => {
-          console.log("✅ Claim Recorded Successfully");
-          // Immediate cache invalidation to update Total Recovered and History
           queryClient.invalidateQueries();
           setIsProcessing(false);
         },
         onError: (err: any) => {
-          console.error("❌ Backend rejected claim:", err.response?.data || err.message);
-          // Only unlock for retries if it wasn't a duplicate (422)
           if (err?.response?.status !== 422) {
             hasTriggered.current = false; 
           }
@@ -70,10 +73,8 @@ const { data: claimsData }   = useClaims(undefined, { refetchInterval: 3000 });
       });
     }
 
-    // Reset lock only when rain falls below safe threshold
     if (!firing && rain < 25) {
       if (hasTriggered.current) {
-        console.log("🌤️ Weather cleared. System re-armed.");
         hasTriggered.current = false; 
       }
     }
@@ -83,7 +84,6 @@ const { data: claimsData }   = useClaims(undefined, { refetchInterval: 3000 });
   const totalPaid = claimsData?.data?.reduce((acc: number, c: Claim) => 
     acc + (['PAID', 'AUTO_APPROVED', 'SETTLED', 'PENDING'].includes(c.status) ? (Number(c.payoutAmount) || 0) : 0), 0) || 0;
 
-  // Sync Trust Score between Banner and Stat Box
   const latestClaim = claimsData?.data?.[0];
   const confidenceValue = latestClaim?.mlMetadata?.confidence ?? latestClaim?.aiConfidence;
   const currentTrustScore = confidenceValue 
@@ -94,7 +94,7 @@ const { data: claimsData }   = useClaims(undefined, { refetchInterval: 3000 });
 
   return (
     <div className={`${styles.page} anim-in`}>
-      <header className="flex justify-between items-center mb-6">
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
         <div>
            <h1 className={styles.pageTitle}>Welcome back, {user?.name || 'there'} 👋</h1>
            <p className={styles.pageSub}>
@@ -103,11 +103,34 @@ const { data: claimsData }   = useClaims(undefined, { refetchInterval: 3000 });
               : 'No active policy — complete onboarding to get covered'}
           </p>
         </div>
-        <div className="flex items-center gap-2 bg-[#1a2235] px-4 py-2 rounded-full border border-[#1c2840]">
-           <span className={`h-2 w-2 rounded-full ${activePolicy ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
-           <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
-             {activePolicy ? 'AI Monitoring Active' : 'Offline'}
-           </span>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+           <button 
+              onClick={handleSwitchToAdmin}
+              className="hover:scale-105 active:scale-95 transition-transform"
+              style={{
+                padding: '10px 18px',
+                background: '#ffab00',
+                color: '#000',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontSize: '11px',
+                fontWeight: '800',
+                textTransform: 'uppercase',
+                letterSpacing: '0.5px',
+                boxShadow: '0 4px 12px rgba(255, 171, 0, 0.2)',
+              }}
+            >
+              🏛️ Open Insurer Portal
+            </button>
+
+            <div className="flex items-center gap-2 bg-[#1a2235] px-4 py-2 rounded-full border border-[#1c2840]">
+               <span className={`h-2 w-2 rounded-full ${activePolicy ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
+               <span className="text-[11px] font-bold text-slate-400 uppercase tracking-widest">
+                 {activePolicy ? 'AI Monitoring Active' : 'Offline'}
+               </span>
+            </div>
         </div>
       </header>
 
